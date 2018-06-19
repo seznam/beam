@@ -206,7 +206,8 @@ public class BeamFlow extends Flow {
 
   @SuppressWarnings("unchecked")
   private <T> void wrapFinishedInputPCollection(PCollection<T> inputPCollection) {
-    WrappedPCollectionOperator<T> wrap = new WrappedPCollectionOperator<>(this, inputPCollection);
+    WrappedInputPCollectionOperator<T> wrap =
+        new WrappedInputPCollectionOperator<>(this, inputPCollection);
     wrapped.put(inputPCollection, wrap.output);
     context.setFinishedPCollection(wrap.output, inputPCollection);
     super.add(wrap);
@@ -254,7 +255,7 @@ public class BeamFlow extends Flow {
   }
 
   private <T> Dataset<T> newDataset(PCollection<T> coll) {
-    Operator<?, T> wrap = new WrappedPCollectionOperator<>(this, coll);
+    Operator<?, T> wrap = new WrappedInputPCollectionOperator<>(this, coll);
     add(wrap);
     return wrap.output();
   }
@@ -267,7 +268,7 @@ public class BeamFlow extends Flow {
         operator
             .listInputs()
             .stream()
-            .map(d -> (Operator<?, ?>) new WrappedPCollectionOperator(this, unwrapped(d), d))
+            .map(d -> (Operator<?, ?>) new WrappedInputPCollectionOperator(this, unwrapped(d), d))
             .collect(Collectors.toList());
     final DAG<Operator<?, ?>> dag;
     if (inputOperators.isEmpty()) {
