@@ -104,8 +104,8 @@ public class BeamFlow extends Flow {
   }
 
   /**
-   * Create flow from input {@link PCollection} which is
-   * {@linkplain PCollection#isFinishedSpecifying() finished specifying}.
+   * Create flow from input {@link PCollection} which is {@linkplain
+   * PCollection#isFinishedSpecifying() finished specifying}.
    *
    * @param pCollection the input {@link PCollection} to wrap into new flow
    * @return constructed flow
@@ -137,11 +137,10 @@ public class BeamFlow extends Flow {
   /**
    * Registers the provided {@link Coder} for the given class.
    *
-   * <p>
-   * Consider using
-   * {@link org.apache.beam.sdk.extensions.euphoria.core.translate.coder.RegisterCoders}
-   * when registering more coders at once.
-   * </p>
+   * <p>Consider using {@link
+   * org.apache.beam.sdk.extensions.euphoria.core.translate.coder.RegisterCoders} when registering
+   * more coders at once.
+   *
    * @param clazz class of element to be encoded/decoded
    * @param coder coder to encode/decode instances of given class
    * @param <T> type parameter of the class to be encoded
@@ -153,11 +152,10 @@ public class BeamFlow extends Flow {
   /**
    * Registers the provided {@link Coder} for the given type.
    *
-   * <p>
-   * Consider using
-   * {@link org.apache.beam.sdk.extensions.euphoria.core.translate.coder.RegisterCoders}
-   * when registering more coders at once.
-   * </p>
+   * <p>Consider using {@link
+   * org.apache.beam.sdk.extensions.euphoria.core.translate.coder.RegisterCoders} when registering
+   * more coders at once.
+   *
    * @param typeDescriptor type of element to be encoded/decoded
    * @param coder coder to encode/decode instances of given class
    * @param <T> type parameter of the class to be encoded
@@ -169,11 +167,9 @@ public class BeamFlow extends Flow {
   /**
    * Registers the provided {@link Coder} for the given class.
    *
-   * <p>
-   * Consider using
-   * {@link org.apache.beam.sdk.extensions.euphoria.core.translate.coder.RegisterCoders}
-   * when registering more coders at once.
-   * </p>
+   * <p>Consider using {@link
+   * org.apache.beam.sdk.extensions.euphoria.core.translate.coder.RegisterCoders} when registering
+   * more coders at once.
    *
    * @param coderProvider
    */
