@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.extensions.euphoria.core;
 
+import org.apache.beam.sdk.extensions.euphoria.core.testkit.BroadcastHashJoinTest;
 import org.apache.beam.sdk.extensions.euphoria.core.testkit.CountByKeyTest;
 import org.apache.beam.sdk.extensions.euphoria.core.testkit.DistinctTest;
 import org.apache.beam.sdk.extensions.euphoria.core.testkit.FilterTest;
@@ -34,7 +35,7 @@ import org.junit.runners.Suite;
 /** Euphoria operators test suite. */
 @RunWith(TestSuiteRunner.class)
 @Suite.SuiteClasses({
-  //  BroadcastHashJoinTest.class,
+  BroadcastHashJoinTest.class,
   CountByKeyTest.class,
   DistinctTest.class,
   FilterTest.class,

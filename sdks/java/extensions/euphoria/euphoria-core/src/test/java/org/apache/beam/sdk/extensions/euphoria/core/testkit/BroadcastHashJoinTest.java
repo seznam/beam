@@ -43,8 +43,11 @@ public class BroadcastHashJoinTest extends AbstractOperatorTest {
           @Override
           protected Dataset<KV<Integer, String>> getOutput(
               Dataset<Integer> left, Dataset<Long> right) {
-            return LeftJoin.of(
-                    left, MapElements.of(right).using(i -> i).output(SizeHint.FITS_IN_MEMORY))
+
+            Dataset<Long> rightSideMarkedAsFittingInMem =
+                MapElements.of(right).using(i -> i).output(SizeHint.FITS_IN_MEMORY);
+
+            return LeftJoin.of(left, rightSideMarkedAsFittingInMem)
                 .by(e -> e, e -> (int) (e % 10))
                 .using(
                     (Integer l, Optional<Long> r, Collector<String> c) ->
@@ -75,6 +78,93 @@ public class BroadcastHashJoinTest extends AbstractOperatorTest {
                 KV.of(3, "3+13"),
                 KV.of(1, "1+11"),
                 KV.of(1, "1+11"));
+          }
+        });
+  }
+
+  @Processing(Processing.Type.BOUNDED)
+  @Test
+  public void leftBroadcastHashJoinDuplicitiesOnNonBroadcastedSideOnly() {
+    execute(
+        new JoinTest.JoinTestCase<Integer, Long, KV<Integer, String>>() {
+
+          @Override
+          protected Dataset<KV<Integer, String>> getOutput(
+              Dataset<Integer> left, Dataset<Long> right) {
+
+            Dataset<Long> rightSideMarkedAsFittingInMem =
+                MapElements.of(right).using(i -> i).output(SizeHint.FITS_IN_MEMORY);
+
+            return LeftJoin.of(left, rightSideMarkedAsFittingInMem)
+                .by(e -> e, e -> (int) (e % 10))
+                .using(
+                    (Integer l, Optional<Long> r, Collector<String> c) ->
+                        c.collect(l + "+" + r.orElse(null)))
+                .output();
+          }
+
+          @Override
+          protected List<Integer> getLeftInput() {
+            return Arrays.asList(1, 2, 3, 0, 4, 3, 2, 1);
+          }
+
+          @Override
+          protected List<Long> getRightInput() {
+            return Arrays.asList(11L, 12L, 13L, 14L, 15L);
+          }
+
+          @Override
+          public List<KV<Integer, String>> getUnorderedOutput() {
+            return Arrays.asList(
+                KV.of(0, "0+null"),
+                KV.of(2, "2+12"),
+                KV.of(2, "2+12"),
+                KV.of(4, "4+14"),
+                KV.of(1, "1+11"),
+                KV.of(1, "1+11"),
+                KV.of(3, "3+13"),
+                KV.of(3, "3+13"));
+          }
+        });
+  }
+
+  @Processing(Processing.Type.BOUNDED)
+  @Test
+  public void leftBroadcastHashJoinDuplicitiesInBroadcastedSideOnly() {
+    execute(
+        new JoinTest.JoinTestCase<Integer, Long, KV<Integer, String>>() {
+
+          @Override
+          protected Dataset<KV<Integer, String>> getOutput(
+              Dataset<Integer> left, Dataset<Long> right) {
+            return LeftJoin.of(
+                    left, MapElements.of(right).using(i -> i).output(SizeHint.FITS_IN_MEMORY))
+                .by(e -> e, e -> (int) (e % 10))
+                .using(
+                    (Integer l, Optional<Long> r, Collector<String> c) ->
+                        c.collect(l + "+" + r.orElse(null)))
+                .output();
+          }
+
+          @Override
+          protected List<Integer> getLeftInput() {
+            return Arrays.asList(1, 2, 3, 0, 4);
+          }
+
+          @Override
+          protected List<Long> getRightInput() {
+            return Arrays.asList(11L, 12L, 13L, 14L, 15L, 11L);
+          }
+
+          @Override
+          public List<KV<Integer, String>> getUnorderedOutput() {
+            return Arrays.asList(
+                KV.of(0, "0+null"),
+                KV.of(2, "2+12"),
+                KV.of(4, "4+14"),
+                KV.of(1, "1+11"),
+                KV.of(1, "1+11"),
+                KV.of(3, "3+13"));
           }
         });
   }
@@ -133,8 +223,11 @@ public class BroadcastHashJoinTest extends AbstractOperatorTest {
           @Override
           protected Dataset<KV<String, String>> getOutput(
               Dataset<String> left, Dataset<Integer> right) {
-            return LeftJoin.of(
-                    left, MapElements.of(right).using(i -> i).output(SizeHint.FITS_IN_MEMORY))
+
+            Dataset<Integer> rightSideMarkedAsFittingInMem =
+                MapElements.of(right).using(i -> i).output(SizeHint.FITS_IN_MEMORY);
+
+            return LeftJoin.of(left, rightSideMarkedAsFittingInMem)
                 .by(e -> e, e -> e % 2 == 0 ? sameHashCodeKey2 : sameHashCodeKey1)
                 .using(
                     (String l, Optional<Integer> r, Collector<String> c) ->

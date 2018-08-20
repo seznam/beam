@@ -97,7 +97,7 @@ public class BroadcastHashJoinTranslator implements OperatorTranslator<Join> {
         throw new UnsupportedOperationException(
             String.format(
                 "Cannot translate Euphoria '%s' operator to Beam transformations."
-                    + " Given join type '%s' is not supported for BrodcastHashJoin.",
+                    + " Given join type '%s' is not supported for BroadcastHashJoin.",
                 Join.class.getSimpleName(), operator.getType()));
     }
   }
