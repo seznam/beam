@@ -18,6 +18,7 @@
 package org.apache.beam.sdk.extensions.euphoria.core.util;
 
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /** Utils for easier exception handling. */
 public class ExceptionUtils {
@@ -32,10 +33,7 @@ public class ExceptionUtils {
    */
   public static <T> T unchecked(Supplier<T> supplier) {
     try {
-      return supplier.apply();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new RuntimeException(e);
+      return supplier.get();
     } catch (RuntimeException e) {
       // no need to wrap, it is already unchecked
       throw e;
@@ -95,19 +93,13 @@ public class ExceptionUtils {
     return () -> new IllegalStateException(message);
   }
 
-  /** TODO: complete javadoc. */
-  @FunctionalInterface
-  public interface Supplier<T> {
-    T apply() throws Exception;
-  }
-
-  /** TODO: complete javadoc. */
+  /** Simple user defined callback. */
   @FunctionalInterface
   public interface Action {
     void apply() throws Exception;
   }
 
-  /** TODO: complete javadoc. */
+  /** User defined {@link Exception} throwing consumer. */
   @FunctionalInterface
   public interface ThrowingConsumer<T> {
     void consume(T what) throws Exception;
