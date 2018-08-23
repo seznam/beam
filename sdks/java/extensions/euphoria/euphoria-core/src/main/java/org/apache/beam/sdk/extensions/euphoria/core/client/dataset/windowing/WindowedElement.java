@@ -29,7 +29,7 @@ import org.apache.beam.sdk.extensions.euphoria.core.annotation.audience.Audience
 @Audience(Audience.Type.CLIENT)
 public interface WindowedElement<W extends Window, T> {
 
-  /** @return window of element. */
+  /** @return window of1 element. */
   W getWindow();
 
   /** @return associated timestamp */
