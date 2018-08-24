@@ -17,7 +17,15 @@
  */
 
 apply plugin: org.apache.beam.gradle.BeamModulePlugin
-applyJavaNature()
+applyJavaNature(shadowClosure: DEFAULT_SHADOW_CLOSURE << {
+    dependencies {
+        include(dependency("org.apache.commons:.*"))
+    }
+    relocate "com.google.thirdparty", getJavaRelocatedPath("com.google.thirdparty")
+    relocate "com.google.protobuf", getJavaRelocatedPath("com.google.protobuf")
+    relocate "net.bytebuddy", getJavaRelocatedPath("net.bytebuddy")
+    relocate "org.apache.commons", getJavaRelocatedPath("org.apache.commons")
+})
 
 description = "Apache Beam :: SDKs :: Java :: Extensions :: Euphoria Java 8 DSL :: Core"
 
@@ -28,10 +36,12 @@ ext {
 dependencies {
     shadow project(path: ":beam-sdks-java-core", configuration: "shadow")
     compile "com.esotericsoftware:kryo:${kryoVersion}"
+    shadow library.java.commons_compress
     shadow library.java.guava
     testCompile library.java.mockito_core
     testCompile project(path: ':beam-sdks-java-extensions-euphoria-testing')
-    shadow 'com.google.code.findbugs:annotations:3.0.+'
+    compileOnly 'com.google.code.findbugs:annotations:3.0.+'
+    testCompile 'com.google.code.findbugs:annotations:3.0.+'
     testCompile library.java.slf4j_api
     testCompile library.java.hamcrest_core
     testCompile library.java.hamcrest_library
