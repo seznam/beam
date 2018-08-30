@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.extensions.euphoria.core.client.accumulators.AccumulatorProvider;
 import org.apache.beam.sdk.extensions.euphoria.core.client.dataset.Dataset;
 import org.apache.beam.sdk.extensions.euphoria.core.client.functional.BinaryFunctor;
 import org.apache.beam.sdk.extensions.euphoria.core.client.operator.Join;
@@ -78,19 +79,26 @@ public class BroadcastHashJoinTranslator implements OperatorTranslator<Join> {
         getKVInputCollection(
             right, operator.getRightKeyExtractor(), keyCoder, rightCoder, ":extract-keys-right");
 
+    final AccumulatorProvider accumulators =
+        new LazyAccumulatorProvider(context.getAccumulatorFactory(), context.getSettings());
+
     switch (operator.getType()) {
       case LEFT:
         final PCollectionView<Map<K, Iterable<RightT>>> broadcastRight =
             rightKvInput.apply(View.asMultimap());
         return leftKvInput.apply(
-            ParDo.of(new BroadcastHashLeftJoinFn<>(broadcastRight, operator.getJoiner()))
+            ParDo.of(
+                    new BroadcastHashLeftJoinFn<>(
+                        broadcastRight, operator.getJoiner(), accumulators, operator.getName()))
                 .withSideInputs(broadcastRight));
 
       case RIGHT:
         final PCollectionView<Map<K, Iterable<LeftT>>> broadcastLeft =
             leftKvInput.apply(View.asMultimap());
         return rightKvInput.apply(
-            ParDo.of(new BroadcastHashRightJoinFn<>(broadcastLeft, operator.getJoiner()))
+            ParDo.of(
+                    new BroadcastHashRightJoinFn<>(
+                        broadcastLeft, operator.getJoiner(), accumulators, operator.getName()))
                 .withSideInputs(broadcastLeft));
 
       default:
@@ -131,13 +139,16 @@ public class BroadcastHashJoinTranslator implements OperatorTranslator<Join> {
 
     private final PCollectionView<Map<K, Iterable<LeftT>>> smallSideCollection;
     private final BinaryFunctor<LeftT, RightT, OutputT> joiner;
-    private final SingleValueCollector<OutputT> outCollector = new SingleValueCollector<>();
+    private final SingleValueCollector<OutputT> outCollector;
 
     BroadcastHashRightJoinFn(
         PCollectionView<Map<K, Iterable<LeftT>>> smallSideCollection,
-        BinaryFunctor<LeftT, RightT, OutputT> joiner) {
+        BinaryFunctor<LeftT, RightT, OutputT> joiner,
+        AccumulatorProvider accumulators,
+        String operatorName) {
       this.smallSideCollection = smallSideCollection;
       this.joiner = joiner;
+      this.outCollector = new SingleValueCollector<>(accumulators, operatorName);
     }
 
     @SuppressWarnings("unused")
@@ -159,13 +170,16 @@ public class BroadcastHashJoinTranslator implements OperatorTranslator<Join> {
 
     private final PCollectionView<Map<K, Iterable<RightT>>> smallSideCollection;
     private final BinaryFunctor<LeftT, RightT, OutputT> joiner;
-    private final SingleValueCollector<OutputT> outCollector = new SingleValueCollector<>();
+    private final SingleValueCollector<OutputT> outCollector;
 
     BroadcastHashLeftJoinFn(
         PCollectionView<Map<K, Iterable<RightT>>> smallSideCollection,
-        BinaryFunctor<LeftT, RightT, OutputT> joiner) {
+        BinaryFunctor<LeftT, RightT, OutputT> joiner,
+        AccumulatorProvider accumulators,
+        String operatorName) {
       this.smallSideCollection = smallSideCollection;
       this.joiner = joiner;
+      this.outCollector = new SingleValueCollector<>(accumulators, operatorName);
     }
 
     @SuppressWarnings("unused")
