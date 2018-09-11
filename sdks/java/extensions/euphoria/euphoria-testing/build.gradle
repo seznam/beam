@@ -19,6 +19,14 @@
 apply plugin: org.apache.beam.gradle.BeamModulePlugin
 applyJavaNature()
 
+description = "Apache Beam :: SDKs :: Java :: Extensions :: Euphoria Java 8 DSL :: Testing"
+
 dependencies {
+    shadow project(path: ":beam-sdks-java-core", configuration: "shadow")
     compile library.java.junit
+    testCompile project(path: ':beam-sdks-java-extensions-euphoria-core')
+    testCompile project(':beam-runners-direct-java')
+    testCompile library.java.slf4j_simple
 }
+
+test.testLogging.showStandardStreams = true
