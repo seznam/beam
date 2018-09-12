@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.extensions.euphoria.core.translate.common;
 
+import com.google.common.base.Preconditions;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 
@@ -25,6 +26,18 @@ public class PipelineUtils {
 
   public static PipelineOptions getDirectPipelineOptions() {
     final String[] args = {"--runner=DirectRunner"};
+    return PipelineOptionsFactory.fromArgs(args).as(PipelineOptions.class);
+  }
+
+  public static PipelineOptions getSparkLocalOptions(int numberOfCores) {
+    Preconditions.checkArgument(
+        numberOfCores > 0,
+        String.format(
+            "Number of cores needs to be higher than 0, but %d was given.", numberOfCores));
+
+    final String[] args = {
+      "--runner=SparkRunner", String.format("--sparkMaster=local[%d]", numberOfCores)
+    };
     return PipelineOptionsFactory.fromArgs(args).as(PipelineOptions.class);
   }
 }

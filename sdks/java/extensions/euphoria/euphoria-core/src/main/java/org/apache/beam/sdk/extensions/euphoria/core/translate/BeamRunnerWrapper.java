@@ -39,6 +39,7 @@ import org.slf4j.LoggerFactory;
 public class BeamRunnerWrapper {
 
   private static final Logger LOG = LoggerFactory.getLogger(BeamRunnerWrapper.class);
+  public static final int SPARK_LOCAL_DEFAULT_NUMBER_OF_CORES = 4;
 
   private final PipelineOptions options;
   private final Settings settings;
@@ -61,6 +62,13 @@ public class BeamRunnerWrapper {
   /** @return wrapper around Beam's direct runner. It allows to run {@link Flow} locally. */
   public static BeamRunnerWrapper ofDirect() {
     final PipelineOptions options = PipelineUtils.getDirectPipelineOptions();
+    return new BeamRunnerWrapper(options).withAllowedLateness(java.time.Duration.ofHours(1));
+  }
+
+  /** @return wrapper around Beam's local Spark runner. It allows to run {@link Flow} locally. */
+  public static BeamRunnerWrapper ofSparkLocal() {
+    final PipelineOptions options =
+        PipelineUtils.getSparkLocalOptions(SPARK_LOCAL_DEFAULT_NUMBER_OF_CORES);
     return new BeamRunnerWrapper(options).withAllowedLateness(java.time.Duration.ofHours(1));
   }
 

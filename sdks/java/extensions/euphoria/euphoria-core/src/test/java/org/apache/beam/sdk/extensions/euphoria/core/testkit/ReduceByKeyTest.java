@@ -62,6 +62,7 @@ import org.apache.beam.sdk.extensions.euphoria.core.client.util.Triple;
 import org.apache.beam.sdk.extensions.euphoria.core.testkit.accumulators.SnapshotProvider;
 import org.apache.beam.sdk.extensions.euphoria.core.testkit.junit.AbstractOperatorTest;
 import org.apache.beam.sdk.extensions.euphoria.core.testkit.junit.Processing;
+import org.apache.beam.sdk.extensions.euphoria.core.testkit.junit.Processing.Type;
 import org.apache.beam.sdk.extensions.euphoria.core.translate.coder.KryoCoder;
 import org.apache.beam.sdk.transforms.windowing.AfterWatermark;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
@@ -317,6 +318,7 @@ public class ReduceByKeyTest extends AbstractOperatorTest {
         });
   }
 
+  @Processing(Type.UNBOUNDED)
   @Test
   public void testReduceWithWindowing() {
     execute(

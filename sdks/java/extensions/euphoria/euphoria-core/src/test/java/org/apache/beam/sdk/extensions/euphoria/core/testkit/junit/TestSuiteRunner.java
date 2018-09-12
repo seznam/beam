@@ -19,9 +19,12 @@ package org.apache.beam.sdk.extensions.euphoria.core.testkit.junit;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -64,13 +67,14 @@ public class TestSuiteRunner extends Suite {
       TestClass tc = new TestClass(testClass);
       List<Object[]> paramsList = getParametersList(tc);
       List<FrameworkMethod> methods = tc.getAnnotatedMethods(Test.class);
+      List<BeamRunnerType> beamRunners = getRunnerTypesToRunTestsWith();
 
       Optional<Type> cPType = getProcessingType(testClass);
       for (FrameworkMethod method : methods) {
         LOG.info(String.format("Test method found '%s' it will be scheduled to run.", method));
 
         if (!isOperatorTest) {
-          addRunner(runners, testClass, method, null, paramsList);
+          addTestRunners(runners, testClass, method, null, paramsList, beamRunners);
           continue;
         }
 
@@ -84,28 +88,46 @@ public class TestSuiteRunner extends Suite {
         Optional<Type> rPType = merged(kPType, definedPType);
         if (rPType.isPresent()) {
           for (Processing.Type ptype : rPType.get().asList()) {
-            addRunner(runners, testClass, method, ptype, paramsList);
+            addTestRunners(runners, testClass, method, ptype, paramsList, beamRunners);
           }
         } else {
-          addRunner(runners, testClass, method, null, paramsList);
+          addTestRunners(runners, testClass, method, null, paramsList, beamRunners);
         }
       }
     }
   }
 
-  private static void addRunner(
+  private List<BeamRunnerType> getRunnerTypesToRunTestsWith() {
+    boolean runWithLocalSpark =
+        Boolean.valueOf(System.getProperty("euphoria.testkit.runWithlocalspark"));
+
+    if (runWithLocalSpark) {
+      return Arrays.asList(BeamRunnerType.DIRECT, BeamRunnerType.SPARK_LOCAL);
+    }
+
+    return Collections.singletonList(BeamRunnerType.DIRECT);
+  }
+
+  private void addTestRunners(
       List<Runner> acc,
       Class<?> testClass,
       FrameworkMethod method,
       Processing.Type pType,
-      List<Object[]> paramsList)
+      List<Object[]> paramsList,
+      List<BeamRunnerType> beamRunners)
       throws Throwable {
 
-    if (paramsList == null || paramsList.isEmpty()) {
-      acc.add(new ExecutorProviderTestMethodRunner(testClass, method, pType, null));
-    } else {
-      for (Object[] params : paramsList) {
-        acc.add(new ExecutorProviderTestMethodRunner(testClass, method, pType, params));
+    for (BeamRunnerType runnerType : beamRunners) {
+      if (!runnerType.isProcessingTypeSupported(pType)) {
+        continue;
+      }
+
+      if (paramsList == null || paramsList.isEmpty()) {
+        acc.add(new TestSuiteMethodRunner(testClass, method, pType, null, runnerType));
+      } else {
+        for (Object[] params : paramsList) {
+          acc.add(new TestSuiteMethodRunner(testClass, method, pType, params, runnerType));
+        }
       }
     }
   }
@@ -170,18 +192,41 @@ public class TestSuiteRunner extends Suite {
     return runners;
   }
 
-  static class ExecutorProviderTestMethodRunner extends BlockJUnit4ClassRunner {
+  private enum BeamRunnerType {
+    DIRECT("direct", Sets.immutableEnumSet(Type.BOUNDED, Type.UNBOUNDED)),
+    SPARK_LOCAL("spark-local", Sets.immutableEnumSet(Type.BOUNDED));
+
+    final String name;
+    final ImmutableSet<Type> supportedProcessingTypes;
+
+    BeamRunnerType(String name, ImmutableSet<Type> supportedProcessingTypes) {
+      this.name = name;
+      this.supportedProcessingTypes = supportedProcessingTypes;
+    }
+
+    boolean isProcessingTypeSupported(Processing.Type type) {
+      return supportedProcessingTypes.contains(type);
+    }
+  }
+
+  static class TestSuiteMethodRunner extends BlockJUnit4ClassRunner {
     private final Processing.Type procType;
     private final FrameworkMethod method;
     private final Object[] parameterList;
+    private final BeamRunnerType runnerType;
 
-    ExecutorProviderTestMethodRunner(
-        Class<?> testClass, FrameworkMethod method, Processing.Type ptype, Object[] parameterList)
+    TestSuiteMethodRunner(
+        Class<?> testClass,
+        FrameworkMethod method,
+        Type ptype,
+        Object[] parameterList,
+        BeamRunnerType runnerType)
         throws InitializationError {
       super(testClass);
       this.procType = ptype;
       this.method = method;
       this.parameterList = parameterList;
+      this.runnerType = runnerType;
     }
 
     @Override
@@ -211,6 +256,8 @@ public class TestSuiteRunner extends Suite {
       if (isAbstractOperatorTest()) {
         buf.append("[").append(procType == null ? "UNDEFINED" : procType).append("]");
       }
+
+      buf.append("[runner: ").append(runnerType.name).append("]");
       return buf.toString();
     }
 
@@ -251,7 +298,19 @@ public class TestSuiteRunner extends Suite {
           public void evaluate() throws Throwable {
 
             AbstractOperatorTest opTest = ((AbstractOperatorTest) target);
-            BeamRunnerWrapper runner = BeamRunnerWrapper.ofDirect();
+            BeamRunnerWrapper runner;
+            switch (runnerType) {
+              case DIRECT:
+                runner = BeamRunnerWrapper.ofDirect();
+                break;
+              case SPARK_LOCAL:
+                runner = BeamRunnerWrapper.ofSparkLocal();
+                break;
+              default:
+                throw new UnsupportedOperationException(
+                    "Unsupported type or runner " + runnerType + ".");
+            }
+
             opTest.runner = runner;
             opTest.processing = procType;
             try {
