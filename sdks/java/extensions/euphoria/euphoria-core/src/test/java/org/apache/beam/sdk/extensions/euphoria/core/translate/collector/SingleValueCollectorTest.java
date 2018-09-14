@@ -28,9 +28,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- * {@link SingleValueCollector} unit tests.
- */
+/** {@link SingleValueCollector} unit tests. */
 public class SingleValueCollectorTest {
 
   private static final String TEST_COUNTER_NAME = "test-counter";
@@ -87,9 +85,7 @@ public class SingleValueCollectorTest {
     // collector.getTimer() <- not yet supported
   }
 
-  /**
-   * need to delete all metrics from accumulator before running another test
-   */
+  /** We need to delete all metrics from accumulator before running another test. */
   @After
   public void cleanUp() {
     singleJVMaccFactory.clear();
