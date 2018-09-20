@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.beam.sdk.extensions.euphoria.core.coder;
+package org.apache.beam.sdk.extensions.kryo;
 
 import static java.util.Objects.requireNonNull;
 
@@ -24,11 +24,12 @@ import java.util.HashMap;
 import java.util.Map;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.extensions.euphoria.core.annotation.stability.Experimental;
 import org.apache.beam.sdk.values.TypeDescriptor;
 
 /** Convenient way of registering Beam {@link Coder}s to the given {@link Pipeline}. */
-@Experimental
+//todo: this would mean circular dependency
+//import org.apache.beam.sdk.extensions.euphoria.core.annotation.stability.Experimental;
+//@Experimental
 public class RegisterCoders {
 
   public static KryoBuilder to(Pipeline pipeline) {
