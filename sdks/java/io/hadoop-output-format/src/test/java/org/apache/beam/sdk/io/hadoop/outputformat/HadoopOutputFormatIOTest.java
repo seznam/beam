@@ -22,7 +22,10 @@ import static org.junit.Assert.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.coders.SerializableCoder;
+import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.hadoop.SerializableConfiguration;
+import org.apache.beam.sdk.io.hadoop.WritableCoder;
 import org.apache.beam.sdk.io.hadoop.inputformat.Employee;
 import org.apache.beam.sdk.io.hadoop.inputformat.TestEmployeeDataSet;
 import org.apache.beam.sdk.testing.TestPipeline;
@@ -30,9 +33,13 @@ import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.TypeDescriptor;
+import org.apache.beam.sdk.values.TypeDescriptors;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.OutputCommitter;
 import org.apache.hadoop.mapreduce.OutputFormat;
+import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -40,10 +47,14 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
+import org.mockito.Mockito;
+import org.mockito.runners.MockitoJUnitRunner;
 
 /** Unit tests for {@link HadoopOutputFormatIO}. */
-@RunWith(JUnit4.class)
+@RunWith(MockitoJUnitRunner.class)
 public class HadoopOutputFormatIOTest {
+
+
   private static SerializableConfiguration serConf;
 
   @Rule public final transient TestPipeline p = TestPipeline.create();
@@ -51,8 +62,9 @@ public class HadoopOutputFormatIOTest {
 
   @BeforeClass
   public static void setUp() {
-    EmployeeOutputFormat.initWrittenOutput();
     serConf = loadTestConfiguration(EmployeeOutputFormat.class, Text.class, Employee.class);
+    OutputCommitter mockedOutputCommitter = Mockito.mock(OutputCommitter.class);
+    EmployeeOutputFormat.initWrittenOutput(mockedOutputCommitter);
   }
 
   private static SerializableConfiguration loadTestConfiguration(
@@ -73,6 +85,8 @@ public class HadoopOutputFormatIOTest {
     assertEquals(EmployeeOutputFormat.class, write.getOutputFormatClass().getRawType());
     assertEquals(Text.class, write.getOutputFormatKeyClass().getRawType());
     assertEquals(Employee.class, write.getOutputFormatValueClass().getRawType());
+    assertEquals(HadoopUtils.DEFAULT_PARTITIONER_CLASS_ATTR, write.getPartitioner().getClass());
+    assertEquals(Integer.valueOf(HadoopUtils.DEFAULT_NUM_REDUCERS), write.getReducersCount());
   }
 
   /**
@@ -96,9 +110,10 @@ public class HadoopOutputFormatIOTest {
   @Test
   public void testWriteValidationFailsMissingOutputFormatInConf() {
     Configuration configuration = new Configuration();
-    configuration.setClass(HadoopOutputFormatIO.OUTPUTFORMAT_KEY_CLASS, Text.class, Object.class);
     configuration.setClass(
-        HadoopOutputFormatIO.OUTPUTFORMAT_VALUE_CLASS, Employee.class, Object.class);
+        HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR, Text.class, Object.class);
+    configuration.setClass(
+        HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR, Employee.class, Object.class);
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage("Configuration must contain \"mapreduce.job.outputformat.class\"");
     HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
@@ -113,9 +128,9 @@ public class HadoopOutputFormatIOTest {
   public void testWriteValidationFailsMissingKeyClassInConf() {
     Configuration configuration = new Configuration();
     configuration.setClass(
-        HadoopOutputFormatIO.OUTPUTFORMAT_CLASS, TextOutputFormat.class, OutputFormat.class);
+        HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR, TextOutputFormat.class, OutputFormat.class);
     configuration.setClass(
-        HadoopOutputFormatIO.OUTPUTFORMAT_VALUE_CLASS, Employee.class, Object.class);
+        HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR, Employee.class, Object.class);
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage("Configuration must contain \"mapreduce.job.outputformat.key.class\"");
     HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
@@ -130,8 +145,9 @@ public class HadoopOutputFormatIOTest {
   public void testWriteValidationFailsMissingValueClassInConf() {
     Configuration configuration = new Configuration();
     configuration.setClass(
-        HadoopOutputFormatIO.OUTPUTFORMAT_CLASS, TextOutputFormat.class, OutputFormat.class);
-    configuration.setClass(HadoopOutputFormatIO.OUTPUTFORMAT_KEY_CLASS, Text.class, Object.class);
+        HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR, TextOutputFormat.class, OutputFormat.class);
+    configuration.setClass(
+        HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR, Text.class, Object.class);
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage("Configuration must contain \"mapreduce.job.outputformat.value.class\"");
     HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
@@ -140,7 +156,13 @@ public class HadoopOutputFormatIOTest {
   @Test
   public void testWritingData() {
     List<KV<Text, Employee>> data = TestEmployeeDataSet.getEmployeeData();
-    PCollection<KV<Text, Employee>> input = p.apply(Create.of(data));
+    PCollection<KV<Text, Employee>> input =
+        p.apply(Create.of(data))
+            .setTypeDescriptor(
+                TypeDescriptors.kvs(
+                    new TypeDescriptor<Text>() {}, new TypeDescriptor<Employee>() {}));
+
+
     input.apply(
         "Write", HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(serConf.get()));
     p.run();
@@ -186,17 +208,26 @@ public class HadoopOutputFormatIOTest {
     assertThat(
         displayData,
         hasDisplayItem(
-            HadoopOutputFormatIO.OUTPUTFORMAT_CLASS,
-            serConf.get().get(HadoopOutputFormatIO.OUTPUTFORMAT_CLASS)));
+            HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR,
+            serConf.get().get(HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR)));
     assertThat(
         displayData,
         hasDisplayItem(
-            HadoopOutputFormatIO.OUTPUTFORMAT_KEY_CLASS,
-            serConf.get().get(HadoopOutputFormatIO.OUTPUTFORMAT_KEY_CLASS)));
+            HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR,
+            serConf.get().get(HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR)));
     assertThat(
         displayData,
         hasDisplayItem(
-            HadoopOutputFormatIO.OUTPUTFORMAT_VALUE_CLASS,
-            serConf.get().get(HadoopOutputFormatIO.OUTPUTFORMAT_VALUE_CLASS)));
+            HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR,
+            serConf.get().get(HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR)));
+    assertThat(
+        displayData,
+        hasDisplayItem(
+            HadoopOutputFormatIO.PARTITIONER_CLASS_ATTR,
+            serConf.get().get(HadoopOutputFormatIO.PARTITIONER_CLASS_ATTR)));
+    assertThat(
+        displayData,
+        hasDisplayItem(
+            HadoopOutputFormatIO.NUM_REDUCES, serConf.get().get(HadoopOutputFormatIO.NUM_REDUCES)));
   }
 }

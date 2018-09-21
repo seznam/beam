@@ -33,6 +33,8 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
  */
 public class EmployeeOutputFormat extends OutputFormat<Text, Employee> {
   private static volatile List<KV<Text, Employee>> output;
+  private static OutputCommitter outputCommitter;
+
 
   @Override
   public RecordWriter<Text, Employee> getRecordWriter(TaskAttemptContext context) {
@@ -54,10 +56,11 @@ public class EmployeeOutputFormat extends OutputFormat<Text, Employee> {
 
   @Override
   public OutputCommitter getOutputCommitter(TaskAttemptContext context) {
-    return null;
+    return outputCommitter;
   }
 
-  public static synchronized void initWrittenOutput() {
+  public static synchronized void initWrittenOutput(OutputCommitter outputCommitter) {
+    EmployeeOutputFormat.outputCommitter = outputCommitter;
     output = Collections.synchronizedList(new ArrayList<>());
   }
 
