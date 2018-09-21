@@ -23,7 +23,8 @@ import java.io.Serializable;
 /**
  * Interface to be implemented by clients to register their classes with {@link Kryo}.
  *
- * <p>{@link KryoRegistrar KryoRegistrars} have to be stateless and {@link Serializable}.
+ * <p>{@link KryoRegistrar KryoRegistrars} implementations have to be stateless and {@link
+ * Serializable}.
  */
 public interface KryoRegistrar extends Serializable {
 

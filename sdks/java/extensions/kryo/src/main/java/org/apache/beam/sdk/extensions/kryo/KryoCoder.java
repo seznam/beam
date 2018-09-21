@@ -21,6 +21,7 @@ import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.KryoException;
 import com.esotericsoftware.kryo.io.InputChunked;
 import com.esotericsoftware.kryo.io.OutputChunked;
+import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -28,8 +29,8 @@ import org.apache.beam.sdk.coders.CoderException;
 import org.apache.beam.sdk.coders.CustomCoder;
 
 /**
- * Coder using Kryo as (de)serialization mechanism. See {@link RegisterCoders} to get more details
- * of how to use it
+ * Coder using Kryo as (de)serialization mechanism. See {@link KryoCoderProvider} to get more
+ * details of how to use it
  */
 public class KryoCoder<T> extends CustomCoder<T> {
 
@@ -111,6 +112,11 @@ public class KryoCoder<T> extends CustomCoder<T> {
               registrarWithId),
           e);
     }
+  }
+
+  @VisibleForTesting
+  IdentifiedRegistrar getRegistrar() {
+    return registrarWithId;
   }
 
   @Override

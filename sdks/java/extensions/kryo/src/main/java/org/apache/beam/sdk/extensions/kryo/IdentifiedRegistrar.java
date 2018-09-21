@@ -36,7 +36,7 @@ import org.slf4j.LoggerFactory;
 class IdentifiedRegistrar implements Serializable {
 
   static final int NO_OP_REGISTRAR_ID = -1;
-  private static final Logger LOG = LoggerFactory.getLogger(RegisterCoders.class);
+  private static final Logger LOG = LoggerFactory.getLogger(IdentifiedRegistrar.class);
 
   private static final AtomicInteger idSource = new AtomicInteger();
 
@@ -53,7 +53,7 @@ class IdentifiedRegistrar implements Serializable {
     IdentifiedRegistrar identifiedRegistrar =
         new IdentifiedRegistrar(idSource.getAndIncrement(), registrar);
     LOG.debug(
-        "Registrar id [{}] was assigned to [{}].",
+        "Kryo registrar id [{}] was assigned to [{}].",
         identifiedRegistrar.getId(),
         registrar.getClass());
     return identifiedRegistrar;
