@@ -49,6 +49,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.postgresql.ds.PGSimpleDataSource;
 
+//sequencefile
+
 /**
  * A test of {@link org.apache.beam.sdk.io.hadoop.outputformat.HadoopOutputFormatIO} on an
  * independent postgres instance.
@@ -112,10 +114,11 @@ public class HadoopOutputFormatIOIT {
     conf.setStrings(DBConfiguration.OUTPUT_FIELD_NAMES_PROPERTY, "id", "name");
 
     conf.setClass(
-        HadoopOutputFormatIO.OUTPUTFORMAT_KEY_CLASS, TestRowDBWritable.class, Object.class);
-    conf.setClass(HadoopOutputFormatIO.OUTPUTFORMAT_VALUE_CLASS, NullWritable.class, Object.class);
+        HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR, TestRowDBWritable.class, Object.class);
     conf.setClass(
-        HadoopOutputFormatIO.OUTPUTFORMAT_CLASS, DBOutputFormat.class, OutputFormat.class);
+        HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR, NullWritable.class, Object.class);
+    conf.setClass(
+        HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR, DBOutputFormat.class, OutputFormat.class);
 
     hadoopConfiguration = new SerializableConfiguration(conf);
   }
