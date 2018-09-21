@@ -34,14 +34,15 @@ import org.apache.beam.sdk.extensions.euphoria.core.client.operator.base.Shuffle
 import org.apache.beam.sdk.extensions.euphoria.core.client.operator.hint.OutputHint;
 import org.apache.beam.sdk.extensions.euphoria.core.translate.OperatorTransform;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.windowing.TimestampCombiner;
 import org.apache.beam.sdk.transforms.windowing.Trigger;
 import org.apache.beam.sdk.transforms.windowing.Window;
-import org.apache.beam.sdk.transforms.windowing.WindowDesc;
 import org.apache.beam.sdk.transforms.windowing.WindowFn;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.apache.beam.sdk.values.TypeDescriptors;
 import org.apache.beam.sdk.values.WindowingStrategy;
+import org.joda.time.Duration;
 
 /**
  * Operator outputting distinct (based on {@link Object#equals}) elements.
@@ -142,19 +143,24 @@ public class Distinct<InputT, OutputT> extends ShuffleOperator<InputT, OutputT, 
 
   /** Builder for the 'triggeredBy' step */
   public interface TriggerByBuilder<OutputT>
-      extends Builders.TriggeredBy<AccumulatorModeBuilder<OutputT>> {
+      extends Builders.TriggeredBy<AccumulationModeBuilder<OutputT>> {
 
     @Override
-    AccumulatorModeBuilder<OutputT> triggeredBy(Trigger trigger);
+    AccumulationModeBuilder<OutputT> triggeredBy(Trigger trigger);
   }
 
   /** Builder for the 'accumulationMode' step */
-  public interface AccumulatorModeBuilder<OutputT>
-      extends Builders.AccumulatorMode<OutputBuilder<OutputT>> {
+  public interface AccumulationModeBuilder<OutputT>
+      extends Builders.AccumulationMode<WindowedOutputBuilder<OutputT>> {
 
     @Override
-    OutputBuilder<OutputT> accumulationMode(WindowingStrategy.AccumulationMode accumulationMode);
+    WindowedOutputBuilder<OutputT> accumulationMode(
+        WindowingStrategy.AccumulationMode accumulationMode);
   }
+
+  /** Builder for 'windowed output' step */
+  public interface WindowedOutputBuilder<OutputT>
+      extends Builders.WindowedOutput<WindowedOutputBuilder<OutputT>>, OutputBuilder<OutputT> {}
 
   /** Builder for the 'output' step */
   public interface OutputBuilder<OutputT> extends Builders.Output<OutputT> {}
@@ -163,15 +169,17 @@ public class Distinct<InputT, OutputT> extends ShuffleOperator<InputT, OutputT, 
       implements OfBuilder,
           MappedBuilder<InputT, OutputT>,
           WindowByBuilder<OutputT>,
-          OutputBuilder<OutputT>,
           TriggerByBuilder<OutputT>,
-          AccumulatorModeBuilder<OutputT> {
+          AccumulationModeBuilder<OutputT>,
+          WindowedOutputBuilder<OutputT>,
+          OutputBuilder<OutputT> {
+
+    private final WindowBuilder<InputT> windowBuilder = new WindowBuilder<>();
 
     @Nullable private final String name;
     private Dataset<InputT> input;
     @Nullable private UnaryFunction<InputT, OutputT> mapper;
     @Nullable private TypeDescriptor<OutputT> outputType;
-    @Nullable private Window<InputT> window;
 
     Builder(@Nullable String name) {
       this.name = name;
@@ -198,30 +206,46 @@ public class Distinct<InputT, OutputT> extends ShuffleOperator<InputT, OutputT, 
     @Override
     public <T extends BoundedWindow> TriggerByBuilder<OutputT> windowBy(
         WindowFn<Object, T> windowFn) {
-      this.window = Window.into(requireNonNull(windowFn));
+      windowBuilder.windowBy(windowFn);
       return this;
     }
 
     @Override
-    public AccumulatorModeBuilder<OutputT> triggeredBy(Trigger trigger) {
-      this.window = requireNonNull(window).triggering(requireNonNull(trigger));
+    public AccumulationModeBuilder<OutputT> triggeredBy(Trigger trigger) {
+      windowBuilder.triggeredBy(trigger);
       return this;
     }
 
     @Override
-    public OutputBuilder<OutputT> accumulationMode(
+    public WindowedOutputBuilder<OutputT> accumulationMode(
         WindowingStrategy.AccumulationMode accumulationMode) {
-      switch (requireNonNull(accumulationMode)) {
-        case DISCARDING_FIRED_PANES:
-          window = requireNonNull(window).discardingFiredPanes();
-          break;
-        case ACCUMULATING_FIRED_PANES:
-          window = requireNonNull(window).accumulatingFiredPanes();
-          break;
-        default:
-          throw new IllegalArgumentException(
-              "Unknown accumulation mode [" + accumulationMode + "]");
-      }
+      windowBuilder.accumulationMode(accumulationMode);
+      return this;
+    }
+
+    @Override
+    public WindowedOutputBuilder<OutputT> withAllowedLateness(Duration allowedLateness) {
+      windowBuilder.withAllowedLateness(allowedLateness);
+      return this;
+    }
+
+    @Override
+    public WindowedOutputBuilder<OutputT> withAllowedLateness(
+        Duration allowedLateness, Window.ClosingBehavior closingBehavior) {
+      windowBuilder.withAllowedLateness(allowedLateness, closingBehavior);
+      return this;
+    }
+
+    @Override
+    public WindowedOutputBuilder<OutputT> withTimestampCombiner(
+        TimestampCombiner timestampCombiner) {
+      windowBuilder.withTimestampCombiner(timestampCombiner);
+      return this;
+    }
+
+    @Override
+    public WindowedOutputBuilder<OutputT> withOnTimeBehavior(Window.OnTimeBehavior behavior) {
+      windowBuilder.withOnTimeBehavior(behavior);
       return this;
     }
 
@@ -231,7 +255,8 @@ public class Distinct<InputT, OutputT> extends ShuffleOperator<InputT, OutputT, 
       if (mapper == null) {
         this.mapper = (UnaryFunction) UnaryFunction.identity();
       }
-      final Distinct<InputT, OutputT> distinct = new Distinct<>(name, mapper, outputType, window);
+      final Distinct<InputT, OutputT> distinct =
+          new Distinct<>(name, mapper, outputType, windowBuilder.getWindow().orElse(null));
       return OperatorTransform.apply(distinct, Collections.singletonList(input));
     }
   }
@@ -254,18 +279,16 @@ public class Distinct<InputT, OutputT> extends ShuffleOperator<InputT, OutputT, 
             .combineBy(e -> null)
             .applyIf(
                 getWindow().isPresent(),
-                (builder) -> {
-                  final WindowDesc<InputT> desc =
-                      WindowDesc.of(
-                          getWindow()
-                              .orElseThrow(
-                                  () ->
-                                      new IllegalStateException(
-                                          "Unable to resolve windowing for distinct expansion.")));
-                  return builder
-                      .windowBy(desc.getWindowFn())
-                      .triggeredBy(desc.getTrigger())
-                      .accumulationMode(desc.getAccumulationMode());
+                builder -> {
+                  @SuppressWarnings("unchecked")
+                  final ReduceByKey.WindowByInternalBuilder<InputT, OutputT, Void> casted =
+                      (ReduceByKey.WindowByInternalBuilder) builder;
+                  return casted.windowBy(
+                      getWindow()
+                          .orElseThrow(
+                              () ->
+                                  new IllegalStateException(
+                                      "Unable to resolve windowing for Distinct expansion.")));
                 })
             .output();
     return MapElements.named("extract-keys")

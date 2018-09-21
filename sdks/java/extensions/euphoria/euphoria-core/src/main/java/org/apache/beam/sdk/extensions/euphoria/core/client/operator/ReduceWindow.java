@@ -43,13 +43,14 @@ import org.apache.beam.sdk.extensions.euphoria.core.client.operator.hint.OutputH
 import org.apache.beam.sdk.extensions.euphoria.core.client.type.TypeAware;
 import org.apache.beam.sdk.extensions.euphoria.core.translate.OperatorTransform;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.windowing.TimestampCombiner;
 import org.apache.beam.sdk.transforms.windowing.Trigger;
 import org.apache.beam.sdk.transforms.windowing.Window;
-import org.apache.beam.sdk.transforms.windowing.WindowDesc;
 import org.apache.beam.sdk.transforms.windowing.WindowFn;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.apache.beam.sdk.values.TypeDescriptors;
 import org.apache.beam.sdk.values.WindowingStrategy;
+import org.joda.time.Duration;
 
 /**
  * Reduces all elements in a window. The operator corresponds to {@link ReduceByKey} with the same
@@ -223,19 +224,24 @@ public class ReduceWindow<InputT, ValueT, OutputT> extends ShuffleOperator<Input
 
   /** Builder for 'triggeredBy' step */
   public interface TriggeredByBuilder<OutputT>
-      extends Builders.TriggeredBy<AccumulatorModeBuilder<OutputT>> {
+      extends Builders.TriggeredBy<AccumulationModeBuilder<OutputT>> {
 
     @Override
-    AccumulatorModeBuilder<OutputT> triggeredBy(Trigger trigger);
+    AccumulationModeBuilder<OutputT> triggeredBy(Trigger trigger);
   }
 
   /** Builder for 'accumulationMode' step */
-  public interface AccumulatorModeBuilder<OutputT>
-      extends Builders.AccumulatorMode<OutputBuilder<OutputT>> {
+  public interface AccumulationModeBuilder<OutputT>
+      extends Builders.AccumulationMode<WindowedOutputBuilder<OutputT>> {
 
     @Override
-    OutputBuilder<OutputT> accumulationMode(WindowingStrategy.AccumulationMode accumulationMode);
+    WindowedOutputBuilder<OutputT> accumulationMode(
+        WindowingStrategy.AccumulationMode accumulationMode);
   }
+
+  /** Builder for 'windowed output' step */
+  public interface WindowedOutputBuilder<OutputT>
+      extends Builders.WindowedOutput<WindowedOutputBuilder<OutputT>>, OutputBuilder<OutputT> {}
 
   public interface OutputBuilder<OutputT> extends Builders.Output<OutputT> {}
 
@@ -252,8 +258,11 @@ public class ReduceWindow<InputT, ValueT, OutputT> extends ShuffleOperator<Input
           WithSortedValuesBuilder<ValueT, OutputT>,
           WindowByBuilder<OutputT>,
           TriggeredByBuilder<OutputT>,
-          AccumulatorModeBuilder<OutputT>,
+          AccumulationModeBuilder<OutputT>,
+          WindowedOutputBuilder<OutputT>,
           OutputBuilder<OutputT> {
+
+    private final WindowBuilder<InputT> windowBuilder = new WindowBuilder<>();
 
     @Nullable private final String name;
     private Dataset<InputT> input;
@@ -262,7 +271,6 @@ public class ReduceWindow<InputT, ValueT, OutputT> extends ShuffleOperator<Input
     private ReduceFunctor<ValueT, OutputT> reducer;
     @Nullable private TypeDescriptor<OutputT> outputType;
     @Nullable private BinaryFunction<ValueT, ValueT, Integer> valueComparator;
-    @Nullable private Window<InputT> window;
 
     Builder(@Nullable String name) {
       this.name = name;
@@ -311,30 +319,46 @@ public class ReduceWindow<InputT, ValueT, OutputT> extends ShuffleOperator<Input
     @Override
     public <T extends BoundedWindow> TriggeredByBuilder<OutputT> windowBy(
         WindowFn<Object, T> windowFn) {
-      window = Window.into(requireNonNull(windowFn));
+      windowBuilder.windowBy(windowFn);
       return this;
     }
 
     @Override
-    public AccumulatorModeBuilder<OutputT> triggeredBy(Trigger trigger) {
-      window = requireNonNull(window).triggering(requireNonNull(trigger));
+    public AccumulationModeBuilder<OutputT> triggeredBy(Trigger trigger) {
+      windowBuilder.triggeredBy(trigger);
       return this;
     }
 
     @Override
-    public OutputBuilder<OutputT> accumulationMode(
+    public WindowedOutputBuilder<OutputT> accumulationMode(
         WindowingStrategy.AccumulationMode accumulationMode) {
-      switch (requireNonNull(accumulationMode)) {
-        case DISCARDING_FIRED_PANES:
-          window = requireNonNull(window).discardingFiredPanes();
-          break;
-        case ACCUMULATING_FIRED_PANES:
-          window = requireNonNull(window).accumulatingFiredPanes();
-          break;
-        default:
-          throw new IllegalArgumentException(
-              "Unknown accumulation mode [" + accumulationMode + "]");
-      }
+      windowBuilder.accumulationMode(accumulationMode);
+      return this;
+    }
+
+    @Override
+    public WindowedOutputBuilder<OutputT> withAllowedLateness(Duration allowedLateness) {
+      windowBuilder.withAllowedLateness(allowedLateness);
+      return this;
+    }
+
+    @Override
+    public WindowedOutputBuilder<OutputT> withAllowedLateness(
+        Duration allowedLateness, Window.ClosingBehavior closingBehavior) {
+      windowBuilder.withAllowedLateness(allowedLateness, closingBehavior);
+      return this;
+    }
+
+    @Override
+    public WindowedOutputBuilder<OutputT> withTimestampCombiner(
+        TimestampCombiner timestampCombiner) {
+      windowBuilder.withTimestampCombiner(timestampCombiner);
+      return this;
+    }
+
+    @Override
+    public WindowedOutputBuilder<OutputT> withOnTimeBehavior(Window.OnTimeBehavior behavior) {
+      windowBuilder.withOnTimeBehavior(behavior);
       return this;
     }
 
@@ -342,7 +366,13 @@ public class ReduceWindow<InputT, ValueT, OutputT> extends ShuffleOperator<Input
     public Dataset<OutputT> output(OutputHint... outputHints) {
       final ReduceWindow<InputT, ValueT, OutputT> rw =
           new ReduceWindow<>(
-              name, valueExtractor, valueType, reducer, valueComparator, window, outputType);
+              name,
+              valueExtractor,
+              valueType,
+              reducer,
+              valueComparator,
+              windowBuilder.getWindow().orElse(null),
+              outputType);
       return OperatorTransform.apply(rw, Collections.singletonList(input));
     }
   }
@@ -410,18 +440,16 @@ public class ReduceWindow<InputT, ValueT, OutputT> extends ShuffleOperator<Input
     return windowBy
         .applyIf(
             getWindow().isPresent(),
-            (builder) -> {
-              final WindowDesc<InputT> desc =
-                  WindowDesc.of(
-                      getWindow()
-                          .orElseThrow(
-                              () ->
-                                  new IllegalStateException(
-                                      "Unable to resolve windowing for CountByKey expansion.")));
-              return builder
-                  .windowBy(desc.getWindowFn())
-                  .triggeredBy(desc.getTrigger())
-                  .accumulationMode(desc.getAccumulationMode());
+            builder -> {
+              @SuppressWarnings("unchecked")
+              final ReduceByKey.WindowByInternalBuilder<InputT, Byte, OutputT> casted =
+                  (ReduceByKey.WindowByInternalBuilder) builder;
+              return casted.windowBy(
+                  getWindow()
+                      .orElseThrow(
+                          () ->
+                              new IllegalStateException(
+                                  "Unable to resolve windowing for ReduceWindow expansion.")));
             })
         .outputValues();
   }
