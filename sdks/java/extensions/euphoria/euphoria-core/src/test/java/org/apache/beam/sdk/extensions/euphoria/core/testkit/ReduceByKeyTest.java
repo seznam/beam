@@ -39,8 +39,8 @@ import org.apache.beam.sdk.extensions.euphoria.core.client.operator.AssignEventT
 import org.apache.beam.sdk.extensions.euphoria.core.client.operator.ReduceByKey;
 import org.apache.beam.sdk.extensions.euphoria.core.client.util.Fold;
 import org.apache.beam.sdk.extensions.euphoria.core.client.util.Sums;
-import org.apache.beam.sdk.extensions.euphoria.core.coder.KryoCoder;
 import org.apache.beam.sdk.extensions.euphoria.core.testkit.accumulators.SnapshotProvider;
+import org.apache.beam.sdk.extensions.kryo.KryoCoder;
 import org.apache.beam.sdk.transforms.windowing.AfterWatermark;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.FixedWindows;

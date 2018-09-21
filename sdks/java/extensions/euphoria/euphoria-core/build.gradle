@@ -30,6 +30,7 @@ dependencies {
     shadow "com.esotericsoftware:kryo:${kryoVersion}"
     shadow library.java.guava
     testCompile library.java.mockito_core
+    testCompile project(path: ":beam-sdks-java-extensions-kryo")
     testCompile project(path: ':beam-sdks-java-extensions-euphoria-testing')
     testCompile library.java.slf4j_api
     testCompile library.java.hamcrest_core

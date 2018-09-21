@@ -15,44 +15,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.beam.sdk.extensions.euphoria.core.coder;
+package org.apache.beam.sdk.extensions.kryo;
 
-import com.esotericsoftware.kryo.Kryo;
+import static org.junit.Assert.assertEquals;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import org.junit.Assert;
 import org.junit.Test;
 
-/** A set of unit {@link KryoFactory} tests. */
-public class KryoFactoryTest {
+/** Unit tests of {@link IdentifiedRegistrar}. */
+public class IdentifiedRegistrarTest {
 
   @Test
-  public void testGiveTheSameKrioAfterKryoRegistrarDeserialized()
-      throws IOException, ClassNotFoundException {
-
-    IdentifiedRegistrar registrar = IdentifiedRegistrar.of((k) -> k.register(TestClass.class));
-
-    Kryo firstKryo = KryoFactory.getOrCreateKryo(registrar);
+  public void testSerializationRetainsId() throws IOException, ClassNotFoundException {
+    IdentifiedRegistrar registrarWithIdOriginal = IdentifiedRegistrar.of((k) -> {});
 
     ByteArrayOutputStream outStr = new ByteArrayOutputStream();
     ObjectOutputStream oss = new ObjectOutputStream(outStr);
 
-    oss.writeObject(registrar);
+    oss.writeObject(registrarWithIdOriginal);
     oss.flush();
     oss.close();
 
     ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(outStr.toByteArray()));
+    IdentifiedRegistrar registrarDeserialized = (IdentifiedRegistrar) ois.readObject();
 
-    @SuppressWarnings("unchecked")
-    IdentifiedRegistrar deserializedRegistrar = (IdentifiedRegistrar) ois.readObject();
-
-    Kryo secondKryo = KryoFactory.getOrCreateKryo(deserializedRegistrar);
-
-    Assert.assertSame(firstKryo, secondKryo);
+    assertEquals(registrarWithIdOriginal.getId(), registrarDeserialized.getId());
   }
-
-  private static class TestClass {}
 }
