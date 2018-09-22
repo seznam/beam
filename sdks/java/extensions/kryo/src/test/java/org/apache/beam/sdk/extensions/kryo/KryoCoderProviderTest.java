@@ -26,6 +26,7 @@ import org.apache.beam.sdk.coders.CannotProvideCoderException;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.values.TypeDescriptor;
+import org.apache.beam.sdk.values.TypeDescriptors;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -61,7 +62,7 @@ public class KryoCoderProviderTest {
   }
 
   @Test(expected = CannotProvideCoderException.class)
-  public void testDoNotProvideCOderForUnregisteredClasses() throws CannotProvideCoderException {
+  public void testDoNotProvideCoderForUnregisteredClasses() throws CannotProvideCoderException {
     final KryoCoderProvider provider =
         KryoCoderProvider.of(
             pipeline.getOptions(),
@@ -83,6 +84,12 @@ public class KryoCoderProviderTest {
     assertTrue(coderToAssert instanceof KryoCoder);
     final KryoCoder<FirstTestClass> casted = (KryoCoder<FirstTestClass>) coderToAssert;
     assertEquals(1, casted.getRegistrars().size());
+  }
+
+  @Test(expected = CannotProvideCoderException.class)
+  public void testPrimitiveClass() throws CannotProvideCoderException {
+    final KryoCoderProvider provider = KryoCoderProvider.of(pipeline.getOptions());
+    provider.coderFor(TypeDescriptors.strings(), Collections.emptyList());
   }
 
   private <T> void assertProviderReturnsKryoCoderForClass(KryoCoderProvider provider, Class<T> type)

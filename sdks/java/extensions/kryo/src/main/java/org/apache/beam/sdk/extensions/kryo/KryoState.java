@@ -52,12 +52,15 @@ class KryoState {
                 kryo.setReferences(coder.getOptions().getReferences());
                 kryo.setRegistrationRequired(coder.getOptions().getRegistrationRequired());
                 kryo.setClassLoader(Thread.currentThread().getContextClassLoader());
+                // first id of user provided class registration
+                final int firstRegistrationId = kryo.getNextRegistrationId();
                 // register user provided classes
                 for (KryoRegistrar registrar : coder.getRegistrars()) {
                   registrar.registerClasses(kryo);
                 }
                 return new KryoState(
                     kryo,
+                    firstRegistrationId,
                     new InputChunked(coder.getOptions().getBufferSize()),
                     new OutputChunked(coder.getOptions().getBufferSize()));
               });
@@ -67,14 +70,19 @@ class KryoState {
   /** The kryo instance. */
   private final Kryo kryo;
 
+  /** first id of user provided class registration */
+  private final int firstRegistrationId;
+
   /** A reusable input buffer. */
   private final InputChunked inputChunked;
 
   /** A reusable output buffer. */
   private final OutputChunked outputChunked;
 
-  private KryoState(Kryo kryo, InputChunked inputChunked, OutputChunked outputChunked) {
+  private KryoState(
+      Kryo kryo, int firstRegistrationId, InputChunked inputChunked, OutputChunked outputChunked) {
     this.kryo = kryo;
+    this.firstRegistrationId = firstRegistrationId;
     this.inputChunked = inputChunked;
     this.outputChunked = outputChunked;
   }
@@ -86,6 +94,15 @@ class KryoState {
    */
   Kryo getKryo() {
     return kryo;
+  }
+
+  /**
+   * {@link KryoState#firstRegistrationId}
+   *
+   * @return registration id
+   */
+  public int getFirstRegistrationId() {
+    return firstRegistrationId;
   }
 
   /**

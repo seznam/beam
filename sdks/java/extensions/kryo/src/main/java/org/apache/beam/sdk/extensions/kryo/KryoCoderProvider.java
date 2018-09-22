@@ -19,6 +19,7 @@ package org.apache.beam.sdk.extensions.kryo;
 
 import com.esotericsoftware.kryo.ClassResolver;
 import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.Registration;
 import com.google.common.annotations.VisibleForTesting;
 import java.util.Arrays;
 import java.util.Collections;
@@ -84,7 +85,7 @@ public class KryoCoderProvider extends CoderProvider {
   public <T> Coder<T> coderFor(
       TypeDescriptor<T> typeDescriptor, List<? extends Coder<?>> componentCoders)
       throws CannotProvideCoderException {
-    if (hasRegistration(typeDescriptor)) {
+    if (hasUserProvidedRegistration(typeDescriptor)) {
       return (Coder) coder;
     }
     throw new CannotProvideCoderException(
@@ -93,12 +94,13 @@ public class KryoCoderProvider extends CoderProvider {
             KryoCoder.class.getSimpleName(), typeDescriptor));
   }
 
-  private <T> boolean hasRegistration(TypeDescriptor<T> typeDescriptor) {
+  private <T> boolean hasUserProvidedRegistration(TypeDescriptor<T> typeDescriptor) {
     final KryoState kryoState = KryoState.get(coder);
     final Class<? super T> rawType = typeDescriptor.getRawType();
     final Kryo kryo = kryoState.getKryo();
     final ClassResolver classResolver = kryo.getClassResolver();
-    return classResolver.getRegistration(rawType) != null;
+    final Registration registration = classResolver.getRegistration(rawType);
+    return registration != null && registration.getId() >= kryoState.getFirstRegistrationId();
   }
 
   /**
