@@ -26,7 +26,6 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
-import org.junit.Assert;
 import org.junit.Test;
 
 /** A set of unit {@link KryoState} tests. */
@@ -47,8 +46,8 @@ public class KryoStateTest {
 
     final ObjectInputStream ois =
         new ObjectInputStream(new ByteArrayInputStream(outStr.toByteArray()));
-    @SuppressWarnings("unchecked") final KryoCoder<?> deserializedCoder =
-        (KryoCoder) ois.readObject();
+    @SuppressWarnings("unchecked")
+    final KryoCoder<?> deserializedCoder = (KryoCoder) ois.readObject();
     final KryoState secondKryo = KryoState.get(deserializedCoder);
     assertSame(firstKryo, secondKryo);
   }

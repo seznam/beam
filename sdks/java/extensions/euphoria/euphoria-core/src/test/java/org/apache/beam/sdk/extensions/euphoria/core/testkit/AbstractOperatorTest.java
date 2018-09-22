@@ -49,9 +49,7 @@ public abstract class AbstractOperatorTest implements Serializable {
     final EuphoriaOptions euphoriaOptions = pipelineOptions.as(EuphoriaOptions.class);
     euphoriaOptions.setAccumulatorProviderFactory(accumulatorProvider);
     final Pipeline pipeline = TestPipeline.create(pipelineOptions);
-    pipeline
-        .getCoderRegistry()
-        .registerCoderForClass(Object.class, KryoCoder.withoutClassRegistration());
+    pipeline.getCoderRegistry().registerCoderForClass(Object.class, KryoCoder.of(pipelineOptions));
     final Dataset<T> output = tc.getOutput(pipeline);
     tc.validate(output);
     pipeline.run().waitUntilFinish();

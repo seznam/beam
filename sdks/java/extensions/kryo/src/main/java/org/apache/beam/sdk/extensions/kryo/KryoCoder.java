@@ -47,8 +47,8 @@ public class KryoCoder<T> extends AtomicCoder<T> {
    * Create a new {@link KryoCoder}.
    *
    * @param pipelineOptions Options used for coder setup. See {@link KryoOptions} for more details.
-   * @param <T> type of element this class should decode/encode
-   *     {@link Kryo} instance used by returned {@link KryoCoder}
+   * @param <T> type of element this class should decode/encode {@link Kryo} instance used by
+   *     returned {@link KryoCoder}
    * @return Newly created a {@link KryoCoder}
    */
   public static <T> KryoCoder<T> of(PipelineOptions pipelineOptions) {
@@ -59,9 +59,10 @@ public class KryoCoder<T> extends AtomicCoder<T> {
    * Create a new {@link KryoCoder}.
    *
    * @param pipelineOptions Options used for coder setup. See {@link KryoOptions} for more details.
-   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying kryo instance
-   * @param <T> type of element this class should decode/encode
-   *     {@link Kryo} instance used by returned {@link KryoCoder}
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying
+   *     kryo instance
+   * @param <T> type of element this class should decode/encode {@link Kryo} instance used by
+   *     returned {@link KryoCoder}
    * @return Newly created a {@link KryoCoder}
    */
   public static <T> KryoCoder<T> of(PipelineOptions pipelineOptions, KryoRegistrar... registrars) {
@@ -72,9 +73,10 @@ public class KryoCoder<T> extends AtomicCoder<T> {
    * Create a new {@link KryoCoder}.
    *
    * @param pipelineOptions Options used for coder setup. See {@link KryoOptions} for more details.
-   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying kryo instance
-   * @param <T> type of element this class should decode/encode
-   *     {@link Kryo} instance used by returned {@link KryoCoder}
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying
+   *     kryo instance
+   * @param <T> type of element this class should decode/encode {@link Kryo} instance used by
+   *     returned {@link KryoCoder}
    * @return Newly created a {@link KryoCoder}
    */
   public static <T> KryoCoder<T> of(
@@ -91,19 +93,13 @@ public class KryoCoder<T> extends AtomicCoder<T> {
   /** Serializable wrapper for {@link KryoOptions}. */
   static class SerializableOptions implements Serializable {
 
-    /**
-     * Size of input and output buffer.
-     */
+    /** Size of input and output buffer. */
     private final int bufferSize;
 
-    /**
-     * Enables kryo reference tracking.
-     */
+    /** Enables kryo reference tracking. */
     private final boolean references;
 
-    /**
-     * Enables kryo required registration.
-     */
+    /** Enables kryo required registration. */
     private final boolean registrationRequired;
 
     private SerializableOptions(int bufferSize, boolean references, boolean registrationRequired) {
@@ -140,14 +136,10 @@ public class KryoCoder<T> extends AtomicCoder<T> {
     }
   }
 
-  /**
-   * Unique id of the {@link KryoCoder} instance.
-   */
+  /** Unique id of the {@link KryoCoder} instance. */
   private final String instanceId = UUID.randomUUID().toString();
 
-  /**
-   * Options for underlying kryo instance.
-   */
+  /** Options for underlying kryo instance. */
   private final SerializableOptions options;
 
   /** Client-defined class registrations to {@link Kryo}. */
@@ -190,7 +182,8 @@ public class KryoCoder<T> extends AtomicCoder<T> {
     final InputChunked inputChunked = kryoState.getInputChunked();
     inputChunked.setInputStream(inStream);
     try {
-      @SuppressWarnings("unchecked") final T instance = (T) kryoState.getKryo().readClassAndObject(inputChunked);
+      @SuppressWarnings("unchecked")
+      final T instance = (T) kryoState.getKryo().readClassAndObject(inputChunked);
       return instance;
     } catch (KryoException e) {
       throw new CoderException("Cannot decode object from input stream.", e);

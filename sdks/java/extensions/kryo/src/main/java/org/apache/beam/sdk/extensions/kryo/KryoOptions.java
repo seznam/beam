@@ -40,8 +40,8 @@ public interface KryoOptions extends PipelineOptions {
   void setKryoReferences(boolean references);
 
   @JsonIgnore
-  @Description("Set to false to disable required registration")
-  @Default.Boolean(true)
+  @Description("Set to true to enable required registration")
+  @Default.Boolean(false)
   boolean getKryoRegistrationRequired();
 
   void setKryoRegistrationRequired(boolean registrationRequired);

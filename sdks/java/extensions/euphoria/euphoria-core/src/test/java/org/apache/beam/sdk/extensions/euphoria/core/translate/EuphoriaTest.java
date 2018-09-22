@@ -48,7 +48,7 @@ public class EuphoriaTest implements Serializable {
   public void setup() {
     pipeline
         .getCoderRegistry()
-        .registerCoderForClass(Object.class, KryoCoder.withoutClassRegistration());
+        .registerCoderForClass(Object.class, KryoCoder.of(pipeline.getOptions()));
   }
 
   @Test

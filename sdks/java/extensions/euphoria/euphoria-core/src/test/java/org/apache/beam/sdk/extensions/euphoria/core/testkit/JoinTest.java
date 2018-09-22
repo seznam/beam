@@ -34,6 +34,7 @@ import org.apache.beam.sdk.extensions.euphoria.core.client.operator.LeftJoin;
 import org.apache.beam.sdk.extensions.euphoria.core.client.operator.MapElements;
 import org.apache.beam.sdk.extensions.euphoria.core.client.operator.RightJoin;
 import org.apache.beam.sdk.extensions.kryo.KryoCoder;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.windowing.AfterWatermark;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
@@ -799,7 +800,7 @@ public class JoinTest extends AbstractOperatorTest {
 
     @Override
     public Coder<BoundedWindow> windowCoder() {
-      return KryoCoder.withoutClassRegistration();
+      return KryoCoder.of(PipelineOptionsFactory.create());
     }
 
     @Override

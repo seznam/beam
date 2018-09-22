@@ -20,13 +20,11 @@ package org.apache.beam.sdk.extensions.kryo;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.InputChunked;
 import com.esotericsoftware.kryo.io.OutputChunked;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import org.objenesis.strategy.StdInstantiatorStrategy;
 
-/**
- * Reusable kryo instance.
- */
+/** Reusable kryo instance. */
 class KryoState {
 
   private static final Storage STORAGE = new Storage();
@@ -35,13 +33,11 @@ class KryoState {
     return STORAGE.getOrCreate(coder);
   }
 
-  /**
-   * Caching thread local storage for reusable {@link KryoState}s.
-   */
+  /** Caching thread local storage for reusable {@link KryoState}s. */
   private static class Storage {
 
     private final ThreadLocal<Map<String, KryoState>> kryoStateMap =
-        ThreadLocal.withInitial(ConcurrentHashMap::new);
+        ThreadLocal.withInitial(HashMap::new);
 
     KryoState getOrCreate(KryoCoder<?> coder) {
       return kryoStateMap
@@ -51,9 +47,12 @@ class KryoState {
               k -> {
                 final Kryo kryo = new Kryo();
                 // fallback in case serialized class does not have default constructor
-                kryo.setInstantiatorStrategy(new Kryo.DefaultInstantiatorStrategy(new StdInstantiatorStrategy()));
+                kryo.setInstantiatorStrategy(
+                    new Kryo.DefaultInstantiatorStrategy(new StdInstantiatorStrategy()));
                 kryo.setReferences(coder.getOptions().getReferences());
                 kryo.setRegistrationRequired(coder.getOptions().getRegistrationRequired());
+                kryo.setClassLoader(Thread.currentThread().getContextClassLoader());
+                // register user provided classes
                 for (KryoRegistrar registrar : coder.getRegistrars()) {
                   registrar.registerClasses(kryo);
                 }
@@ -65,19 +64,13 @@ class KryoState {
     }
   }
 
-  /**
-   * The kryo instance.
-   */
+  /** The kryo instance. */
   private final Kryo kryo;
 
-  /**
-   * A reusable input buffer.
-   */
+  /** A reusable input buffer. */
   private final InputChunked inputChunked;
 
-  /**
-   * A reusable output buffer.
-   */
+  /** A reusable output buffer. */
   private final OutputChunked outputChunked;
 
   private KryoState(Kryo kryo, InputChunked inputChunked, OutputChunked outputChunked) {

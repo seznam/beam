@@ -50,7 +50,8 @@ public class KryoCoderProvider extends CoderProvider {
    * Create a new {@link KryoCoderProvider}.
    *
    * @param pipelineOptions Options used for coder setup. See {@link KryoOptions} for more details.
-   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying kryo instance
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying
+   *     kryo instance
    * @return A newly created {@link KryoCoderProvider}
    */
   public static KryoCoderProvider of(PipelineOptions pipelineOptions, KryoRegistrar... registrars) {
@@ -61,7 +62,8 @@ public class KryoCoderProvider extends CoderProvider {
    * Create a new {@link KryoCoderProvider}.
    *
    * @param pipelineOptions Options used for coder setup. See {@link KryoOptions} for more details.
-   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying kryo instance
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying
+   *     kryo instance
    * @return A newly created {@link KryoCoderProvider}
    */
   public static KryoCoderProvider of(
