@@ -21,106 +21,218 @@ import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.KryoException;
 import com.esotericsoftware.kryo.io.InputChunked;
 import com.esotericsoftware.kryo.io.OutputChunked;
-import com.google.common.annotations.VisibleForTesting;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
+import org.apache.beam.sdk.coders.AtomicCoder;
 import org.apache.beam.sdk.coders.CoderException;
-import org.apache.beam.sdk.coders.CustomCoder;
+import org.apache.beam.sdk.options.PipelineOptions;
 
 /**
  * Coder using Kryo as (de)serialization mechanism. See {@link KryoCoderProvider} to get more
- * details of how to use it
+ * details about usage.
+ *
+ * @param <T> type of element coder can handle
  */
-public class KryoCoder<T> extends CustomCoder<T> {
+public class KryoCoder<T> extends AtomicCoder<T> {
 
   /**
-   * Client-defined class registrations to {@link Kryo}.
+   * Create a new {@link KryoCoder}.
    *
-   * <p>{@link KryoCoder} needs it to be able to create a {@link Kryo} instance with correct class
-   * registrations after its deserialization.
+   * @param pipelineOptions Options used for coder setup. See {@link KryoOptions} for more details.
+   * @param <T> type of element this class should decode/encode
+   *     {@link Kryo} instance used by returned {@link KryoCoder}
+   * @return Newly created a {@link KryoCoder}
    */
-  private final IdentifiedRegistrar registrarWithId;
-
-  private KryoCoder(IdentifiedRegistrar registrarWithId) {
-    this.registrarWithId = registrarWithId;
+  public static <T> KryoCoder<T> of(PipelineOptions pipelineOptions) {
+    return of(pipelineOptions, Collections.emptyList());
   }
 
   /**
-   * @param <T> type of element this class should code/encode
-   * @param registrarWithId uniquely identified {@link KryoRegistrar} which is used to register
-   *     classes to {@link Kryo} instance used by returned {@link KryoCoder}
-   * @return Newly created a {@link KryoCoder} instance which will use {@link Kryo} with classes
-   *     registered by {@code registrarWithId}.
+   * Create a new {@link KryoCoder}.
+   *
+   * @param pipelineOptions Options used for coder setup. See {@link KryoOptions} for more details.
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying kryo instance
+   * @param <T> type of element this class should decode/encode
+   *     {@link Kryo} instance used by returned {@link KryoCoder}
+   * @return Newly created a {@link KryoCoder}
    */
-  public static <T> KryoCoder<T> of(IdentifiedRegistrar registrarWithId) {
-    return new KryoCoder<>(registrarWithId);
+  public static <T> KryoCoder<T> of(PipelineOptions pipelineOptions, KryoRegistrar... registrars) {
+    return of(pipelineOptions, Arrays.asList(registrars));
   }
 
   /**
-   * @param <T> type of element this class should code/encode
-   * @return Newly created a {@link KryoCoder} instance which will use {@link Kryo} without class
-   *     registration. That degrades performance. Use {@link #of(IdentifiedRegistrar)} whenever
-   *     possible.
+   * Create a new {@link KryoCoder}.
+   *
+   * @param pipelineOptions Options used for coder setup. See {@link KryoOptions} for more details.
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying kryo instance
+   * @param <T> type of element this class should decode/encode
+   *     {@link Kryo} instance used by returned {@link KryoCoder}
+   * @return Newly created a {@link KryoCoder}
    */
-  public static <T> KryoCoder<T> withoutClassRegistration() {
-    return new KryoCoder<>(KryoFactory.NO_OP_REGISTRAR);
+  public static <T> KryoCoder<T> of(
+      PipelineOptions pipelineOptions, List<KryoRegistrar> registrars) {
+    final KryoOptions kryoOptions = pipelineOptions.as(KryoOptions.class);
+    return new KryoCoder<>(
+        new SerializableOptions(
+            kryoOptions.getKryoBufferSize(),
+            kryoOptions.getKryoReferences(),
+            kryoOptions.getKryoRegistrationRequired()),
+        registrars);
+  }
+
+  /** Serializable wrapper for {@link KryoOptions}. */
+  static class SerializableOptions implements Serializable {
+
+    /**
+     * Size of input and output buffer.
+     */
+    private final int bufferSize;
+
+    /**
+     * Enables kryo reference tracking.
+     */
+    private final boolean references;
+
+    /**
+     * Enables kryo required registration.
+     */
+    private final boolean registrationRequired;
+
+    private SerializableOptions(int bufferSize, boolean references, boolean registrationRequired) {
+      this.bufferSize = bufferSize;
+      this.references = references;
+      this.registrationRequired = registrationRequired;
+    }
+
+    /**
+     * {@link SerializableOptions#bufferSize}
+     *
+     * @return buffer size
+     */
+    int getBufferSize() {
+      return bufferSize;
+    }
+
+    /**
+     * {@link SerializableOptions#references}
+     *
+     * @return boolean flag
+     */
+    boolean getReferences() {
+      return references;
+    }
+
+    /**
+     * {@link SerializableOptions#registrationRequired}
+     *
+     * @return boolean flag
+     */
+    boolean getRegistrationRequired() {
+      return registrationRequired;
+    }
+  }
+
+  /**
+   * Unique id of the {@link KryoCoder} instance.
+   */
+  private final String instanceId = UUID.randomUUID().toString();
+
+  /**
+   * Options for underlying kryo instance.
+   */
+  private final SerializableOptions options;
+
+  /** Client-defined class registrations to {@link Kryo}. */
+  private final List<KryoRegistrar> registrars;
+
+  private KryoCoder(SerializableOptions options, List<KryoRegistrar> registrars) {
+    this.options = options;
+    this.registrars = registrars;
   }
 
   @Override
   public void encode(T value, OutputStream outStream) throws IOException {
-
-    Kryo kryo = KryoFactory.getOrCreateKryo(registrarWithId);
-
-    OutputChunked output = KryoFactory.getKryoOutput();
-    output.clear();
-    output.setOutputStream(outStream);
-
+    final KryoState kryoState = KryoState.get(this);
+    if (value == null) {
+      throw new CoderException("Cannot encode a null value.");
+    }
+    final OutputChunked outputChunked = kryoState.getOutputChunked();
+    outputChunked.setOutputStream(outStream);
     try {
-      kryo.writeClassAndObject(output, value);
-      output.endChunks();
-      output.flush();
+      kryoState.getKryo().writeClassAndObject(outputChunked, value);
+      outputChunked.endChunks();
+      outputChunked.flush();
+    } catch (KryoException e) {
+      outputChunked.clear();
+      if (e.getCause() instanceof EOFException) {
+        throw (EOFException) e.getCause();
+      }
+      throw new CoderException("Cannot encode given object of type [" + value.getClass() + "].", e);
     } catch (IllegalArgumentException e) {
-      throw new CoderException(
-          String.format(
-              "Cannot encode given object of type '%s'. "
-                  + "Forgotten kryo registration is possible explanation. Kryo registrations where done by '%s'.",
-              (value == null) ? null : value.getClass().getSimpleName(), registrarWithId),
-          e);
+      if (e.getMessage().startsWith("Class is not registered")) {
+        throw new CoderException(e.getMessage());
+      }
+      throw e;
     }
   }
 
   @Override
   public T decode(InputStream inStream) throws IOException {
-
-    InputChunked input = KryoFactory.getKryoInput();
-    input.rewind();
-    input.setInputStream(inStream);
-
-    Kryo kryo = KryoFactory.getOrCreateKryo(registrarWithId);
-
+    final KryoState kryoState = KryoState.get(this);
+    final InputChunked inputChunked = kryoState.getInputChunked();
+    inputChunked.setInputStream(inStream);
     try {
-      @SuppressWarnings("unchecked")
-      T outObject = (T) kryo.readClassAndObject(input);
-      return outObject;
-
+      @SuppressWarnings("unchecked") final T instance = (T) kryoState.getKryo().readClassAndObject(inputChunked);
+      return instance;
     } catch (KryoException e) {
-      throw new CoderException(
-          String.format(
-              "Cannot decode object from input stream."
-                  + " Forgotten kryo registration is possible explanation. Kryo registrations where done by '%s'.",
-              registrarWithId),
-          e);
+      throw new CoderException("Cannot decode object from input stream.", e);
     }
   }
 
-  @VisibleForTesting
-  IdentifiedRegistrar getRegistrar() {
-    return registrarWithId;
+  /**
+   * Create a new {@link KryoCoder} instance with the user provided registrar.
+   *
+   * @param registrar registrar to append to list of already registered registrars.
+   * @return new kryo coder
+   */
+  public KryoCoder<T> withRegistrar(KryoRegistrar registrar) {
+    final List<KryoRegistrar> newRegistrars = new ArrayList<>(registrars);
+    registrars.add(registrar);
+    return new KryoCoder<>(options, newRegistrars);
   }
 
-  @Override
-  public void verifyDeterministic() throws NonDeterministicException {
-    // nop
+  /**
+   * {@link KryoCoder#instanceId}
+   *
+   * @return instance id
+   */
+  String getInstanceId() {
+    return instanceId;
+  }
+
+  /**
+   * {@link KryoCoder#options}
+   *
+   * @return options
+   */
+  SerializableOptions getOptions() {
+    return options;
+  }
+
+  /**
+   * {@link KryoCoder#registrars}
+   *
+   * @return registrars
+   */
+  List<KryoRegistrar> getRegistrars() {
+    return registrars;
   }
 }
