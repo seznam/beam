@@ -35,15 +35,12 @@ public class EmployeeOutputFormat extends OutputFormat<Text, Employee> {
   private static volatile List<KV<Text, Employee>> output;
   private static OutputCommitter outputCommitter;
 
-
   @Override
   public RecordWriter<Text, Employee> getRecordWriter(TaskAttemptContext context) {
     return new RecordWriter<Text, Employee>() {
       @Override
       public void write(Text key, Employee value) {
-        synchronized (output) {
-          output.add(KV.of(key, value));
-        }
+        output.add(KV.of(key, value));
       }
 
       @Override
@@ -59,12 +56,16 @@ public class EmployeeOutputFormat extends OutputFormat<Text, Employee> {
     return outputCommitter;
   }
 
-  public static synchronized void initWrittenOutput(OutputCommitter outputCommitter) {
+  static synchronized void initWrittenOutput(OutputCommitter outputCommitter) {
     EmployeeOutputFormat.outputCommitter = outputCommitter;
     output = Collections.synchronizedList(new ArrayList<>());
   }
 
-  public static List<KV<Text, Employee>> getWrittenOutput() {
+  static List<KV<Text, Employee>> getWrittenOutput() {
     return output;
+  }
+
+  static OutputCommitter getOutputCommitter() {
+    return outputCommitter;
   }
 }
