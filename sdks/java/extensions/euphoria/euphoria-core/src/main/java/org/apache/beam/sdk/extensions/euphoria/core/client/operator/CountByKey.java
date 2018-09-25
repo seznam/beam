@@ -266,7 +266,7 @@ public class CountByKey<InputT, KeyT> extends ShuffleOperator<InputT, KeyT, KV<K
   public Dataset<KV<KeyT, Long>> expand(List<Dataset<InputT>> inputs) {
     return ReduceByKey.named(getName().orElse(null))
         .of(Iterables.getOnlyElement(inputs))
-        .keyBy(getKeyExtractor())
+        .keyBy(getKeyExtractor(), getKeyType().orElse(null))
         .valueBy(v -> 1L, TypeDescriptors.longs())
         .combineBy(Sums.ofLongs())
         .applyIf(

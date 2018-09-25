@@ -17,6 +17,8 @@
  */
 package org.apache.beam.sdk.extensions.euphoria.core.translate;
 
+import static java.util.Objects.requireNonNull;
+
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -51,13 +53,18 @@ public class OperatorTransform<InputT, OutputT, OperatorT extends Operator<Outpu
           inputList.apply(
               operator.getName().orElseGet(() -> operator.getClass().getName()),
               new OperatorTransform<>(operator, maybeTranslator.get()));
+      if (operator.getOutputType().isPresent()) {
+        output.setTypeDescriptor(operator.getOutputType().get());
+      }
       return Dataset.of(output, operator);
     }
 
     if (operator instanceof CompositeOperator) {
       @SuppressWarnings("unchecked")
       final CompositeOperator<InputT, OutputT> castedOperator = (CompositeOperator) operator;
-      return Dataset.of(castedOperator.expand(inputs).getPCollection(), operator);
+      final PCollection<OutputT> output = castedOperator.expand(inputs).getPCollection();
+      requireNonNull(output.getTypeDescriptor());
+      return Dataset.of(output, operator);
     }
 
     throw new IllegalStateException(
