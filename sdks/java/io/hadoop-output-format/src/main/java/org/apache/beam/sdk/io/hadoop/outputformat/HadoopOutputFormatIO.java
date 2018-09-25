@@ -16,18 +16,22 @@ package org.apache.beam.sdk.io.hadoop.outputformat;
 
 import com.google.auto.value.AutoValue;
 import org.apache.beam.sdk.annotations.Experimental;
-import org.apache.beam.sdk.io.hadoop.SerializableConfiguration;
+import org.apache.beam.sdk.coders.AtomicCoder;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.*;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.*;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
 import org.apache.hadoop.mapreduce.task.JobContextImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
+import java.io.*;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -119,7 +123,7 @@ public class HadoopOutputFormatIO {
   public abstract static class Write<KeyT, ValueT>
       extends PTransform<PCollection<KV<KeyT, ValueT>>, PDone> {
 
-    public abstract SerializableConfiguration getConfiguration();
+    public abstract Configuration getConfiguration();
 
     public abstract TypeDescriptor<?> getOutputFormatClass();
 
@@ -133,7 +137,7 @@ public class HadoopOutputFormatIO {
 
     @AutoValue.Builder
     abstract static class Builder<KeyT, ValueT> {
-      abstract Builder<KeyT, ValueT> setConfiguration(SerializableConfiguration configuration);
+      abstract Builder<KeyT, ValueT> setConfiguration(Configuration configuration);
 
       abstract Builder<KeyT, ValueT> setOutputFormatClass(TypeDescriptor<?> outputFormatClass);
 
@@ -169,7 +173,7 @@ public class HadoopOutputFormatIO {
         int reducersCount = HadoopUtils.getReducersCountFromConfig(configuration);
         Partitioner<KeyT, ValueT> partitioner = HadoopUtils.getPartitionerFromConfig(configuration);
 
-        return setConfiguration(new SerializableConfiguration(configuration))
+        return setConfiguration(new Configuration(configuration))
             .setOutputFormatClass(outputFormatClass)
             .setOutputFormatKeyClass(outputFormatKeyClass)
             .setOutputFormatValueClass(outputFormatValueClass)
@@ -208,7 +212,7 @@ public class HadoopOutputFormatIO {
     @Override
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
-      Configuration hadoopConfig = getConfiguration().get();
+      Configuration hadoopConfig = getConfiguration();
       if (hadoopConfig != null) {
         builder.addIfNotNull(
             DisplayData.item(OUTPUT_FORMAT_CLASS_ATTR, hadoopConfig.get(OUTPUT_FORMAT_CLASS_ATTR))
@@ -231,29 +235,12 @@ public class HadoopOutputFormatIO {
       }
     }
 
-    private void setupJob(SerializableConfiguration configuration) {
-      try {
-        JobID jobId = HadoopUtils.createJobId();
-        TaskAttemptContext setupTaskContext =
-            HadoopUtils.createSetupTaskContext(getConfiguration().get(), jobId);
-        OutputFormat<?, ?> jobOutputFormat =
-            HadoopUtils.createOutputFormatFromConfig(getConfiguration().get());
-        jobOutputFormat.checkOutputSpecs(setupTaskContext);
-        jobOutputFormat.getOutputCommitter(setupTaskContext).setupJob(setupTaskContext);
-
-        configuration.get().set(MRJobConfig.ID, jobId.getJtIdentifier());
-      } catch (Exception e) {
-        throw new RuntimeException("Unable to setup job.", e);
-      }
-    }
 
     @Override
     public PDone expand(PCollection<KV<KeyT, ValueT>> input) {
 
-      setupJob(getConfiguration());
-
       // TODO add branch for streaming
-      PCollectionView<SerializableConfiguration> configView = null;
+      PCollectionView<Configuration> configView = null;
       if (input.getWindowingStrategy().equals(WindowingStrategy.globalDefault())) {
         configView = createGlobalConfigCollectionView(input);
       }
@@ -263,7 +250,7 @@ public class HadoopOutputFormatIO {
 
     private PDone processJob(
         PCollection<KV<KeyT, ValueT>> input,
-        PCollectionView<SerializableConfiguration> configView) {
+        PCollectionView<Configuration> configView) {
 
       TypeDescriptor<Iterable<Integer>> iterableIntType =
           TypeDescriptors.iterables(TypeDescriptors.integers());
@@ -317,12 +304,19 @@ public class HadoopOutputFormatIO {
           inputTypeDescriptor.resolveType(KV.class.getTypeParameters()[1]));
     }
 
-    private PCollectionView<SerializableConfiguration> createGlobalConfigCollectionView(
+    private PCollectionView<Configuration> createGlobalConfigCollectionView(
         PCollection<KV<KeyT, ValueT>> input) {
+
+      TypeDescriptor<Configuration> confTypeDescriptor = new TypeDescriptor<Configuration>() {};
+
+      input.getPipeline().getCoderRegistry().registerCoderForType(confTypeDescriptor, new ConfigurationCoder());
+
+
 
       return input
           .getPipeline()
-          .apply(TRANSFORM_NAME + "/createConfig", Create.of(getConfiguration()))
+          .apply(TRANSFORM_NAME + "/createConfig", Create.<Configuration>of(getConfiguration())).setTypeDescriptor(confTypeDescriptor)
+          .apply(TRANSFORM_NAME + "/setupJob", ParDo.of(new SetupJobFn())).setTypeDescriptor(confTypeDescriptor)
           .apply(View.asSingleton());
     }
   }
@@ -338,12 +332,12 @@ public class HadoopOutputFormatIO {
     private OutputFormat<KeyT, ValueT> outputFormatObj;
     private TaskAttemptContext taskAttemptContext;
 
-    TaskIdContextHolder(int taskId, SerializableConfiguration conf) {
+    TaskIdContextHolder(int taskId, Configuration conf) {
 
-      JobID jobID = HadoopUtils.getJobIdFromConfig(conf.get());
-      taskAttemptContext = HadoopUtils.createTaskContext(conf.get(), jobID, taskId);
-      outputFormatObj = HadoopUtils.createOutputFormatFromConfig(conf.get());
-      outputCommitter = initOutputCommitter(outputFormatObj, conf.get(), taskAttemptContext);
+      JobID jobID = HadoopUtils.getJobIdFromConfig(conf);
+      taskAttemptContext = HadoopUtils.createTaskContext(conf, jobID, taskId);
+      outputFormatObj = HadoopUtils.createOutputFormatFromConfig(conf);
+      outputCommitter = initOutputCommitter(outputFormatObj, conf, taskAttemptContext);
       recordWriter = initRecordWriter(outputFormatObj, taskAttemptContext);
     }
 
@@ -389,26 +383,83 @@ public class HadoopOutputFormatIO {
     }
   }
 
+  private static class ConfigurationCoder extends AtomicCoder<Configuration> {
+
+    @Override
+    public void encode(Configuration value, OutputStream outStream) throws IOException {
+      DataOutputStream dataOutputStream = new DataOutputStream(outStream);
+      value.write(dataOutputStream);
+      dataOutputStream.flush();
+    }
+
+    @Override
+    public Configuration decode(InputStream inStream) throws IOException {
+      DataInputStream dataInputStream = new DataInputStream(inStream);
+      Configuration config = new Configuration();
+      config.readFields(dataInputStream);
+
+      return config;
+    }
+  }
+
+  private static class SetupJobFn extends DoFn<Configuration, Configuration> {
+
+    @DoFn.ProcessElement
+    public void processElement(@DoFn.Element Configuration serializableConfig,
+        OutputReceiver<Configuration> receiver){
+
+      Configuration hadoopConf = new Configuration();
+
+//      serializableConfig.forEach(p -> hadoopConf.set(p.getKey(), new String(p.getValue())));
+
+
+      setupJob(hadoopConf);
+      receiver.output(new Configuration(hadoopConf));
+
+
+
+    }
+
+    private void setupJob(Configuration conf) {
+      try {
+
+        JobID jobId = HadoopUtils.createJobId();
+        TaskAttemptContext setupTaskContext =
+            HadoopUtils.createSetupTaskContext(conf, jobId);
+        OutputFormat<?, ?> jobOutputFormat =
+            HadoopUtils.createOutputFormatFromConfig(conf);
+        jobOutputFormat.checkOutputSpecs(setupTaskContext);
+        jobOutputFormat.getOutputCommitter(setupTaskContext).setupJob(setupTaskContext);
+
+        conf.set(MRJobConfig.ID, jobId.getJtIdentifier());
+      } catch (Exception e) {
+        throw new RuntimeException("Unable to setup job.", e);
+      }
+    }
+
+  }
+
+
   private static class CommitJobFn<T> extends DoFn<Iterable<T>, Void> {
 
-    PCollectionView<SerializableConfiguration> configView;
+    PCollectionView<Configuration> configView;
 
-    CommitJobFn(PCollectionView<SerializableConfiguration> configView) {
+    CommitJobFn(PCollectionView<Configuration> configView) {
       this.configView = configView;
     }
 
     @ProcessElement
     public void processElement(ProcessContext c) {
 
-      SerializableConfiguration config = c.sideInput(configView);
+      Configuration config = c.sideInput(configView);
       cleanupJob(config);
     }
 
-    private void cleanupJob(SerializableConfiguration config) {
-      JobID jobID = HadoopUtils.getJobIdFromConfig(config.get());
+    private void cleanupJob(Configuration config) {
+      JobID jobID = HadoopUtils.getJobIdFromConfig(config);
       TaskAttemptContext cleanupTaskContext =
-          HadoopUtils.createCleanupTaskContext(config.get(), jobID);
-      OutputFormat<?, ?> outputFormat = HadoopUtils.createOutputFormatFromConfig(config.get());
+          HadoopUtils.createCleanupTaskContext(config, jobID);
+      OutputFormat<?, ?> outputFormat = HadoopUtils.createOutputFormatFromConfig(config);
       try {
         OutputCommitter outputCommitter = outputFormat.getOutputCommitter(cleanupTaskContext);
         outputCommitter.commitJob(cleanupTaskContext);
@@ -423,12 +474,12 @@ public class HadoopOutputFormatIO {
 
     private Map<Integer, TaskID> partitionToTaskContext = new HashMap<>();
 
-    PCollectionView<SerializableConfiguration> configView;
+    PCollectionView<Configuration> configView;
     private Partitioner<KeyT, ValueT> partitioner;
     private Integer reducersCount;
     private JobID jobId;
 
-    AssignTaskFn(PCollectionView<SerializableConfiguration> configView) {
+    AssignTaskFn(PCollectionView<Configuration> configView) {
       this.configView = configView;
     }
 
@@ -438,14 +489,14 @@ public class HadoopOutputFormatIO {
         OutputReceiver<KV<Integer, KV<KeyT, ValueT>>> receiver,
         ProcessContext c) {
 
-      SerializableConfiguration config = c.sideInput(configView);
+      Configuration config = c.sideInput(configView);
 
       TaskID taskID = createTaskIDForKV(element, config);
       int taskId = taskID.getId();
       receiver.output(KV.of(taskId, element));
     }
 
-    private TaskID createTaskIDForKV(KV<KeyT, ValueT> kv, SerializableConfiguration config) {
+    private TaskID createTaskIDForKV(KV<KeyT, ValueT> kv, Configuration config) {
       int taskContextKey =
           getPartitioner(config).getPartition(kv.getKey(), kv.getValue(), getReducersCount(config));
 
@@ -453,23 +504,23 @@ public class HadoopOutputFormatIO {
           taskContextKey, (key) -> HadoopUtils.createTaskID(getJobId(config), key));
     }
 
-    private JobID getJobId(SerializableConfiguration config) {
+    private JobID getJobId(Configuration config) {
       if (jobId == null) {
-        jobId = HadoopUtils.getJobIdFromConfig(config.get());
+        jobId = HadoopUtils.getJobIdFromConfig(config);
       }
       return jobId;
     }
 
-    private int getReducersCount(SerializableConfiguration config) {
+    private int getReducersCount(Configuration config) {
       if (reducersCount == null) {
-        reducersCount = HadoopUtils.getReducersCountFromConfig(config.get());
+        reducersCount = HadoopUtils.getReducersCountFromConfig(config);
       }
       return reducersCount;
     }
 
-    private Partitioner<KeyT, ValueT> getPartitioner(SerializableConfiguration config) {
+    private Partitioner<KeyT, ValueT> getPartitioner(Configuration config) {
       if (partitioner == null) {
-        partitioner = HadoopUtils.getPartitionerFromConfig(config.get());
+        partitioner = HadoopUtils.getPartitionerFromConfig(config);
       }
       return partitioner;
     }
@@ -479,9 +530,9 @@ public class HadoopOutputFormatIO {
       extends DoFn<KV<Integer, Iterable<KV<KeyT, ValueT>>>, Integer> {
 
     private Map<Integer, TaskIdContextHolder<KeyT, ValueT>> taskIdContextHolderMap;
-    private PCollectionView<SerializableConfiguration> configView;
+    private PCollectionView<Configuration> configView;
 
-    WriteFn(PCollectionView<SerializableConfiguration> configView) {
+    WriteFn(PCollectionView<Configuration> configView) {
       this.configView = configView;
     }
 
@@ -493,7 +544,7 @@ public class HadoopOutputFormatIO {
     @ProcessElement
     public void processElement(ProcessContext c) {
 
-      SerializableConfiguration conf = c.sideInput(configView);
+      Configuration conf = c.sideInput(configView);
 
       Integer taskID = c.element().getKey();
 
@@ -539,7 +590,7 @@ public class HadoopOutputFormatIO {
     }
 
     private TaskIdContextHolder<KeyT, ValueT> getOrCreateTaskContextHolder(
-        Integer taskId, SerializableConfiguration conf) {
+        Integer taskId, Configuration conf) {
 
       return taskIdContextHolderMap.computeIfAbsent(
           taskId, (id) -> new TaskIdContextHolder<>(id, conf));

@@ -14,7 +14,6 @@
  */
 package org.apache.beam.sdk.io.hadoop.outputformat;
 
-import org.apache.beam.sdk.io.hadoop.SerializableConfiguration;
 import org.apache.beam.sdk.io.hadoop.inputformat.Employee;
 import org.apache.beam.sdk.io.hadoop.inputformat.TestEmployeeDataSet;
 import org.apache.beam.sdk.testing.TestPipeline;
@@ -52,34 +51,33 @@ import static org.junit.Assert.*;
 public class HadoopOutputFormatIOTest {
 
   private static final int REDUCERS_COUNT = 2;
-  private static SerializableConfiguration serConf;
+  private static Configuration conf;
 
   @Rule public final transient TestPipeline p = TestPipeline.create();
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Before
   public void setUp() {
-    serConf = loadTestConfiguration(EmployeeOutputFormat.class, Text.class, Employee.class);
+    conf = loadTestConfiguration(EmployeeOutputFormat.class, Text.class, Employee.class);
     OutputCommitter mockedOutputCommitter = Mockito.mock(OutputCommitter.class);
     EmployeeOutputFormat.initWrittenOutput(mockedOutputCommitter);
   }
 
-  private static SerializableConfiguration loadTestConfiguration(
+  private static Configuration loadTestConfiguration(
       Class<?> outputFormatClassName, Class<?> keyClass, Class<?> valueClass) {
     Configuration conf = new Configuration();
     conf.setClass(MRJobConfig.OUTPUT_FORMAT_CLASS_ATTR, outputFormatClassName, OutputFormat.class);
     conf.setClass(MRJobConfig.OUTPUT_KEY_CLASS, keyClass, Object.class);
     conf.setClass(MRJobConfig.OUTPUT_VALUE_CLASS, valueClass, Object.class);
     conf.setInt(MRJobConfig.NUM_REDUCES, REDUCERS_COUNT);
-    return new SerializableConfiguration(conf);
+    return conf;
   }
 
   @Test
   public void testWriteBuildsCorrectly() {
     HadoopOutputFormatIO.Write<Text, Employee> write =
-        HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(serConf.get());
+        HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(conf);
 
-    assertEquals(serConf.get(), write.getConfiguration().get());
     assertEquals(EmployeeOutputFormat.class, write.getOutputFormatClass().getRawType());
     assertEquals(Text.class, write.getOutputFormatKeyClass().getRawType());
     assertEquals(Employee.class, write.getOutputFormatValueClass().getRawType());
@@ -165,7 +163,7 @@ public class HadoopOutputFormatIOTest {
                     new TypeDescriptor<Text>() {}, new TypeDescriptor<Employee>() {}));
 
     input.apply(
-        "Write", HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(serConf.get()));
+        "Write", HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(conf));
     p.run();
 
     List<KV<Text, Employee>> writtenOutput = EmployeeOutputFormat.getWrittenOutput();
@@ -196,7 +194,7 @@ public class HadoopOutputFormatIOTest {
     thrown.expectMessage(String.class.getName());
 
     input.apply(
-        "Write", HadoopOutputFormatIO.<String, Employee>write().withConfiguration(serConf.get()));
+        "Write", HadoopOutputFormatIO.<String, Employee>write().withConfiguration(conf));
   }
 
   @Test
@@ -215,7 +213,7 @@ public class HadoopOutputFormatIOTest {
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage(Text.class.getName());
 
-    input.apply("Write", HadoopOutputFormatIO.<Text, Text>write().withConfiguration(serConf.get()));
+    input.apply("Write", HadoopOutputFormatIO.<Text, Text>write().withConfiguration(conf));
   }
 
   /**
@@ -226,32 +224,32 @@ public class HadoopOutputFormatIOTest {
   @Test
   public void testWriteDisplayData() {
     HadoopOutputFormatIO.Write<String, String> write =
-        HadoopOutputFormatIO.<String, String>write().withConfiguration(serConf.get());
+        HadoopOutputFormatIO.<String, String>write().withConfiguration(conf);
     DisplayData displayData = DisplayData.from(write);
 
     assertThat(
         displayData,
         hasDisplayItem(
             HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR,
-            serConf.get().get(HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR)));
+            conf.get(HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR)));
     assertThat(
         displayData,
         hasDisplayItem(
             HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR,
-            serConf.get().get(HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR)));
+            conf.get(HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR)));
     assertThat(
         displayData,
         hasDisplayItem(
             HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR,
-            serConf.get().get(HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR)));
+            conf.get(HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR)));
     assertThat(
         displayData,
         hasDisplayItem(
             HadoopOutputFormatIO.PARTITIONER_CLASS_ATTR,
-            serConf.get().get(HadoopOutputFormatIO.PARTITIONER_CLASS_ATTR)));
+            conf.get(HadoopOutputFormatIO.PARTITIONER_CLASS_ATTR)));
     assertThat(
         displayData,
         hasDisplayItem(
-            HadoopOutputFormatIO.NUM_REDUCES, serConf.get().get(HadoopOutputFormatIO.NUM_REDUCES)));
+            HadoopOutputFormatIO.NUM_REDUCES, conf.get(HadoopOutputFormatIO.NUM_REDUCES)));
   }
 }
