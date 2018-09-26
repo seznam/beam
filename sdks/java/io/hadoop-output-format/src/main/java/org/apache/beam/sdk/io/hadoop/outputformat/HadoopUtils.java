@@ -5,6 +5,7 @@ import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.lib.partition.HashPartitioner;
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl;
 
+import javax.annotation.Nullable;
 import java.lang.reflect.InvocationTargetException;
 import java.util.UUID;
 
@@ -23,13 +24,12 @@ class HadoopUtils {
     return new TaskAttemptContextImpl(conf, new TaskAttemptID(taskId, 0));
   }
 
-  static TaskAttemptContext createTaskContext(
-      Configuration conf, JobID jobID, int taskNumber) {
+  static TaskAttemptContext createTaskContext(Configuration conf, JobID jobID, int taskNumber) {
     final TaskID taskId = createTaskID(jobID, taskNumber);
     return new TaskAttemptContextImpl(conf, new TaskAttemptID(taskId, 0));
   }
 
-  static TaskID createTaskID(JobID jobID, int taskNumber){
+  static TaskID createTaskID(JobID jobID, int taskNumber) {
     return new TaskID(jobID, TaskType.REDUCE, taskNumber);
   }
 
@@ -48,53 +48,52 @@ class HadoopUtils {
    *     unable to construct.
    */
   @SuppressWarnings("unchecked")
-  static <KeyT, ValueT> OutputFormat<KeyT, ValueT> createOutputFormatFromConfig(
-      Configuration conf) throws IllegalArgumentException {
+  static <KeyT, ValueT> OutputFormat<KeyT, ValueT> createOutputFormatFromConfig(Configuration conf)
+      throws IllegalArgumentException {
+    return (OutputFormat<KeyT, ValueT>)createInstanceFromConfig(conf, MRJobConfig.OUTPUT_FORMAT_CLASS_ATTR, null);
+  }
+
+  @SuppressWarnings("unchecked")
+  static <KeyT, ValueT> Partitioner<KeyT, ValueT> getPartitioner(Configuration conf) {
+    return (Partitioner<KeyT, ValueT>) createInstanceFromConfig(conf, MRJobConfig.PARTITIONER_CLASS_ATTR, DEFAULT_PARTITIONER_CLASS_ATTR);
+  }
+
+  private static Object createInstanceFromConfig(
+      Configuration conf, String configClassKey, @Nullable Class<?> defaultClass) {
     try {
-      String outputFormatClassName = conf.get(MRJobConfig.OUTPUT_FORMAT_CLASS_ATTR);
-      if (outputFormatClassName == null) {
+      String className = conf.get(configClassKey);
+      if (className == null && defaultClass == null) {
         throw new IllegalArgumentException(
             String.format(
-                "Unable to create %s from configuration. Configuration does not contains name of %s class under %s key.",
-                OutputFormat.class.getSimpleName(),
-                OutputFormat.class.getSimpleName(),
-                MRJobConfig.OUTPUT_FORMAT_CLASS_ATTR));
+                "Configuration does not contains any value under %s key. Unable to initialize class instance from configuration. ",
+                configClassKey));
       }
-      return (OutputFormat<KeyT, ValueT>)
-          conf.getClassByName(outputFormatClassName).getConstructor().newInstance();
+
+
+      Class<?> requiredClass =
+          defaultClass == null
+              ? conf.getClassByName(className)
+              : conf.getClass(className, defaultClass);
+
+      return requiredClass.getConstructor().newInstance();
     } catch (InstantiationException
         | IllegalAccessException
         | ClassNotFoundException
         | NoSuchMethodException
         | InvocationTargetException e) {
-      throw new IllegalArgumentException("Unable to create OutputFormat object: ", e);
+      throw new IllegalArgumentException(
+          String.format(
+              "Unable to create instance of object from configuration under key %s.",
+              configClassKey),
+          e);
     }
   }
 
-
-  static JobID getJobIdFromConfig(Configuration conf) {
+  static JobID getJobId(Configuration conf) {
     return new JobID(conf.get(MRJobConfig.ID), DEFAULT_JOB_NUMBER);
   }
 
-  @SuppressWarnings("unchecked")
-  static <KeyT, ValueT> Partitioner<KeyT, ValueT> getPartitionerFromConfig(
-      Configuration conf) {
-    try {
-      return
-      (Partitioner<KeyT, ValueT>)
-          conf.getClass(MRJobConfig.PARTITIONER_CLASS_ATTR, DEFAULT_PARTITIONER_CLASS_ATTR)
-              .getConstructor()
-              .newInstance();
-    } catch (NoSuchMethodException
-        | IllegalAccessException
-        | InvocationTargetException
-        | InstantiationException e) {
-      throw new IllegalArgumentException(e);
-    }
-  }
-
-  static int getReducersCountFromConfig(Configuration conf) {
+  static int getReducersCount(Configuration conf) {
     return conf.getInt(MRJobConfig.NUM_REDUCES, DEFAULT_NUM_REDUCERS);
   }
-
 }

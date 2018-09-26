@@ -14,13 +14,13 @@ import java.util.ArrayList;
  * Collects all items of defined type into one {@link Iterable} container.
  * @param <T> Type of the elements to collect
  */
-public class IterableCombinerFn<T>
+class IterableCombinerFn<T>
     extends Combine.AccumulatingCombineFn<
     T, IterableCombinerFn.CollectionAccumulator<T>, Iterable<T>> {
 
   /**
    * Accumulator for collecting one "shard" of types
-   * @param <T>
+   * @param <T> Type of the elements to collect
    */
   public static class CollectionAccumulator<T>
       implements Combine.AccumulatingCombineFn.Accumulator<
@@ -73,7 +73,7 @@ public class IterableCombinerFn<T>
 
   /**
    * Coder for {@link CollectionAccumulator} class.
-   * @param <T>
+   * @param <T> Type of the {@link CollectionAccumulator} class
    */
   private static class CollectionAccumulatorCoder<T> extends AtomicCoder<CollectionAccumulator<T>> {
 
