@@ -22,11 +22,7 @@ import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.*;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.io.IntWritable;
-import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.*;
-import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
-import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
 import org.apache.hadoop.mapreduce.task.JobContextImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +33,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * A {@link HadoopOutputFormatIO} is a Transform for writing data to any sink which implements
@@ -94,12 +91,10 @@ public class HadoopOutputFormatIO {
   private static final Logger LOGGER = LoggerFactory.getLogger(HadoopOutputFormatIO.class);
 
   public static final String OUTPUT_FORMAT_CLASS_ATTR = MRJobConfig.OUTPUT_FORMAT_CLASS_ATTR;
-  public static final String OUTPUT_FORMAT_KEY_CLASS_ATTR = MRJobConfig.OUTPUT_KEY_CLASS;
-  public static final String OUTPUT_FORMAT_VALUE_CLASS_ATTR = MRJobConfig.OUTPUT_VALUE_CLASS;
+  public static final String OUTPUT_KEY_CLASS = MRJobConfig.OUTPUT_KEY_CLASS;
+  public static final String OUTPUT_VALUE_CLASS = MRJobConfig.OUTPUT_VALUE_CLASS;
   public static final String NUM_REDUCES = MRJobConfig.NUM_REDUCES;
   public static final String PARTITIONER_CLASS_ATTR = MRJobConfig.PARTITIONER_CLASS_ATTR;
-
-  private static final String TRANSFORM_NAME = "HadoopOutputIO";
 
   /**
    * Creates an uninitialized {@link HadoopOutputFormatIO.Write}. Before use, the {@code Write} must
@@ -165,13 +160,13 @@ public class HadoopOutputFormatIO {
             TypeDescriptor.of(configuration.getClass(OUTPUT_FORMAT_CLASS_ATTR, null));
         TypeDescriptor<KeyT> outputFormatKeyClass =
             (TypeDescriptor<KeyT>)
-                TypeDescriptor.of(configuration.getClass(OUTPUT_FORMAT_KEY_CLASS_ATTR, null));
+                TypeDescriptor.of(configuration.getClass(OUTPUT_KEY_CLASS, null));
         TypeDescriptor<ValueT> outputFormatValueClass =
             (TypeDescriptor<ValueT>)
-                TypeDescriptor.of(configuration.getClass(OUTPUT_FORMAT_VALUE_CLASS_ATTR, null));
+                TypeDescriptor.of(configuration.getClass(OUTPUT_VALUE_CLASS, null));
 
-        int reducersCount = HadoopUtils.getReducersCountFromConfig(configuration);
-        Partitioner<KeyT, ValueT> partitioner = HadoopUtils.getPartitionerFromConfig(configuration);
+        int reducersCount = HadoopUtils.getReducersCount(configuration);
+        Partitioner<KeyT, ValueT> partitioner = HadoopUtils.getPartitioner(configuration);
 
         return setConfiguration(new Configuration(configuration))
             .setOutputFormatClass(outputFormatClass)
@@ -198,11 +193,11 @@ public class HadoopOutputFormatIO {
             configuration.get(OUTPUT_FORMAT_CLASS_ATTR) != null,
             "Configuration must contain \"" + OUTPUT_FORMAT_CLASS_ATTR + "\"");
         checkArgument(
-            configuration.get(OUTPUT_FORMAT_KEY_CLASS_ATTR) != null,
-            "Configuration must contain \"" + OUTPUT_FORMAT_KEY_CLASS_ATTR + "\"");
+            configuration.get(OUTPUT_KEY_CLASS) != null,
+            "Configuration must contain \"" + OUTPUT_KEY_CLASS + "\"");
         checkArgument(
-            configuration.get(OUTPUT_FORMAT_VALUE_CLASS_ATTR) != null,
-            "Configuration must contain \"" + OUTPUT_FORMAT_VALUE_CLASS_ATTR + "\"");
+            configuration.get(OUTPUT_VALUE_CLASS) != null,
+            "Configuration must contain \"" + OUTPUT_VALUE_CLASS + "\"");
       }
     }
 
@@ -218,13 +213,10 @@ public class HadoopOutputFormatIO {
             DisplayData.item(OUTPUT_FORMAT_CLASS_ATTR, hadoopConfig.get(OUTPUT_FORMAT_CLASS_ATTR))
                 .withLabel("OutputFormat Class"));
         builder.addIfNotNull(
-            DisplayData.item(
-                    OUTPUT_FORMAT_KEY_CLASS_ATTR, hadoopConfig.get(OUTPUT_FORMAT_KEY_CLASS_ATTR))
+            DisplayData.item(OUTPUT_KEY_CLASS, hadoopConfig.get(OUTPUT_KEY_CLASS))
                 .withLabel("OutputFormat Key Class"));
         builder.addIfNotNull(
-            DisplayData.item(
-                    OUTPUT_FORMAT_VALUE_CLASS_ATTR,
-                    hadoopConfig.get(OUTPUT_FORMAT_VALUE_CLASS_ATTR))
+            DisplayData.item(OUTPUT_VALUE_CLASS, hadoopConfig.get(OUTPUT_VALUE_CLASS))
                 .withLabel("OutputFormat Value Class"));
         builder.addIfNotNull(
             DisplayData.item(PARTITIONER_CLASS_ATTR, hadoopConfig.get(PARTITIONER_CLASS_ATTR))
@@ -235,22 +227,25 @@ public class HadoopOutputFormatIO {
       }
     }
 
-
     @Override
     public PDone expand(PCollection<KV<KeyT, ValueT>> input) {
 
       // TODO add branch for streaming
       PCollectionView<Configuration> configView = null;
-      if (input.getWindowingStrategy().equals(WindowingStrategy.globalDefault())) {
+      if (input.isBounded().equals(PCollection.IsBounded.BOUNDED)) {
         configView = createGlobalConfigCollectionView(input);
       }
+      //      else if (!input
+      //          .getWindowingStrategy()
+      //          .equals(WindowingStrategy.globalDefault())) { // TODO not global window
+      //        //        configView = Transformation
+      //      }
 
       return processJob(input, configView);
     }
 
     private PDone processJob(
-        PCollection<KV<KeyT, ValueT>> input,
-        PCollectionView<Configuration> configView) {
+        PCollection<KV<KeyT, ValueT>> input, PCollectionView<Configuration> configView) {
 
       TypeDescriptor<Iterable<Integer>> iterableIntType =
           TypeDescriptors.iterables(TypeDescriptors.integers());
@@ -260,21 +255,21 @@ public class HadoopOutputFormatIO {
       return PDone.in(
           input
               .apply(
-                  TRANSFORM_NAME + "/TaskAssignee",
+                  "AssignTask",
                   ParDo.of(new AssignTaskFn<KeyT, ValueT>(configView)).withSideInputs(configView))
               .setTypeDescriptor(
                   TypeDescriptors.kvs(TypeDescriptors.integers(), input.getTypeDescriptor()))
-              .apply(TRANSFORM_NAME + "/GroupByTaskId", GroupByKey.create())
+              .apply("GroupByTaskId", GroupByKey.create())
               .apply(
-                  TRANSFORM_NAME + "/Write",
+                  "Write",
                   ParDo.of(new WriteFn<KeyT, ValueT>(configView)).withSideInputs(configView))
               .setTypeDescriptor(TypeDescriptors.integers())
               .apply(
-                  TRANSFORM_NAME + "/CollectWriteTasks",
+                  "CollectWriteTasks",
                   Combine.globally(new IterableCombinerFn<>(TypeDescriptors.integers())))
               .setTypeDescriptor(iterableIntType)
               .apply(
-                  TRANSFORM_NAME + "/CommitWriteJob",
+                  "CommitWriteJob",
                   ParDo.of(new CommitJobFn<Integer>(configView)).withSideInputs(configView))
               .getPipeline());
     }
@@ -309,14 +304,17 @@ public class HadoopOutputFormatIO {
 
       TypeDescriptor<Configuration> confTypeDescriptor = new TypeDescriptor<Configuration>() {};
 
-      input.getPipeline().getCoderRegistry().registerCoderForType(confTypeDescriptor, new ConfigurationCoder());
-
-
+      input
+          .getPipeline()
+          .getCoderRegistry()
+          .registerCoderForType(confTypeDescriptor, new ConfigurationCoder());
 
       return input
           .getPipeline()
-          .apply(TRANSFORM_NAME + "/createConfig", Create.<Configuration>of(getConfiguration())).setTypeDescriptor(confTypeDescriptor)
-          .apply(TRANSFORM_NAME + "/setupJob", ParDo.of(new SetupJobFn())).setTypeDescriptor(confTypeDescriptor)
+          .apply("CreateConfig", Create.<Configuration>of(getConfiguration()))
+          .setTypeDescriptor(confTypeDescriptor)
+          .apply("SetupJob", ParDo.of(new SetupJobFn()))
+          .setTypeDescriptor(confTypeDescriptor)
           .apply(View.asSingleton());
     }
   }
@@ -325,16 +323,16 @@ public class HadoopOutputFormatIO {
    * @param <KeyT>
    * @param <ValueT>
    */
-  private static class TaskIdContextHolder<KeyT, ValueT> {
+  private static class TaskContext<KeyT, ValueT> {
 
     private RecordWriter<KeyT, ValueT> recordWriter;
     private OutputCommitter outputCommitter;
     private OutputFormat<KeyT, ValueT> outputFormatObj;
     private TaskAttemptContext taskAttemptContext;
 
-    TaskIdContextHolder(int taskId, Configuration conf) {
+    TaskContext(int taskId, Configuration conf) {
 
-      JobID jobID = HadoopUtils.getJobIdFromConfig(conf);
+      JobID jobID = HadoopUtils.getJobId(conf);
       taskAttemptContext = HadoopUtils.createTaskContext(conf, jobID, taskId);
       outputFormatObj = HadoopUtils.createOutputFormatFromConfig(conf);
       outputCommitter = initOutputCommitter(outputFormatObj, conf, taskAttemptContext);
@@ -355,12 +353,12 @@ public class HadoopOutputFormatIO {
 
     private RecordWriter<KeyT, ValueT> initRecordWriter(
         OutputFormat<KeyT, ValueT> outputFormatObj, TaskAttemptContext taskAttemptContext)
-        throws RuntimeException {
+        throws IllegalStateException {
       try {
         LOGGER.info("Creating new RecordWriter.");
         return outputFormatObj.getRecordWriter(taskAttemptContext);
       } catch (InterruptedException | IOException e) {
-        throw new RuntimeException("Unable to create RecordWriter object: ", e);
+        throw new IllegalStateException("Unable to create RecordWriter object: ", e);
       }
     }
 
@@ -368,7 +366,7 @@ public class HadoopOutputFormatIO {
         OutputFormat<?, ?> outputFormatObj,
         Configuration conf,
         TaskAttemptContext taskAttemptContext)
-        throws RuntimeException {
+        throws IllegalStateException {
       OutputCommitter outputCommitter;
       try {
         outputCommitter = outputFormatObj.getOutputCommitter(taskAttemptContext);
@@ -395,7 +393,7 @@ public class HadoopOutputFormatIO {
     @Override
     public Configuration decode(InputStream inStream) throws IOException {
       DataInputStream dataInputStream = new DataInputStream(inStream);
-      Configuration config = new Configuration();
+      Configuration config = new Configuration(false);
       config.readFields(dataInputStream);
 
       return config;
@@ -405,29 +403,21 @@ public class HadoopOutputFormatIO {
   private static class SetupJobFn extends DoFn<Configuration, Configuration> {
 
     @DoFn.ProcessElement
-    public void processElement(@DoFn.Element Configuration serializableConfig,
-        OutputReceiver<Configuration> receiver){
+    public void processElement(
+        @DoFn.Element Configuration config, OutputReceiver<Configuration> receiver) {
 
-      Configuration hadoopConf = new Configuration();
-
-//      serializableConfig.forEach(p -> hadoopConf.set(p.getKey(), new String(p.getValue())));
-
+      Configuration hadoopConf = new Configuration(config);
 
       setupJob(hadoopConf);
       receiver.output(new Configuration(hadoopConf));
-
-
-
     }
 
     private void setupJob(Configuration conf) {
       try {
 
         JobID jobId = HadoopUtils.createJobId();
-        TaskAttemptContext setupTaskContext =
-            HadoopUtils.createSetupTaskContext(conf, jobId);
-        OutputFormat<?, ?> jobOutputFormat =
-            HadoopUtils.createOutputFormatFromConfig(conf);
+        TaskAttemptContext setupTaskContext = HadoopUtils.createSetupTaskContext(conf, jobId);
+        OutputFormat<?, ?> jobOutputFormat = HadoopUtils.createOutputFormatFromConfig(conf);
         jobOutputFormat.checkOutputSpecs(setupTaskContext);
         jobOutputFormat.getOutputCommitter(setupTaskContext).setupJob(setupTaskContext);
 
@@ -436,9 +426,7 @@ public class HadoopOutputFormatIO {
         throw new RuntimeException("Unable to setup job.", e);
       }
     }
-
   }
-
 
   private static class CommitJobFn<T> extends DoFn<Iterable<T>, Void> {
 
@@ -456,9 +444,8 @@ public class HadoopOutputFormatIO {
     }
 
     private void cleanupJob(Configuration config) {
-      JobID jobID = HadoopUtils.getJobIdFromConfig(config);
-      TaskAttemptContext cleanupTaskContext =
-          HadoopUtils.createCleanupTaskContext(config, jobID);
+      JobID jobID = HadoopUtils.getJobId(config);
+      TaskAttemptContext cleanupTaskContext = HadoopUtils.createCleanupTaskContext(config, jobID);
       OutputFormat<?, ?> outputFormat = HadoopUtils.createOutputFormatFromConfig(config);
       try {
         OutputCommitter outputCommitter = outputFormat.getOutputCommitter(cleanupTaskContext);
@@ -506,21 +493,21 @@ public class HadoopOutputFormatIO {
 
     private JobID getJobId(Configuration config) {
       if (jobId == null) {
-        jobId = HadoopUtils.getJobIdFromConfig(config);
+        jobId = HadoopUtils.getJobId(config);
       }
       return jobId;
     }
 
     private int getReducersCount(Configuration config) {
       if (reducersCount == null) {
-        reducersCount = HadoopUtils.getReducersCountFromConfig(config);
+        reducersCount = HadoopUtils.getReducersCount(config);
       }
       return reducersCount;
     }
 
     private Partitioner<KeyT, ValueT> getPartitioner(Configuration config) {
       if (partitioner == null) {
-        partitioner = HadoopUtils.getPartitionerFromConfig(config);
+        partitioner = HadoopUtils.getPartitioner(config);
       }
       return partitioner;
     }
@@ -529,7 +516,7 @@ public class HadoopOutputFormatIO {
   private static class WriteFn<KeyT, ValueT>
       extends DoFn<KV<Integer, Iterable<KV<KeyT, ValueT>>>, Integer> {
 
-    private Map<Integer, TaskIdContextHolder<KeyT, ValueT>> taskIdContextHolderMap;
+    private Map<Integer, TaskContext<KeyT, ValueT>> taskIdContextMap;
     private PCollectionView<Configuration> configView;
 
     WriteFn(PCollectionView<Configuration> configView) {
@@ -538,67 +525,66 @@ public class HadoopOutputFormatIO {
 
     @Setup
     public void setup() {
-      taskIdContextHolderMap = new HashMap<>();
+      taskIdContextMap = new HashMap<>();
     }
 
     @ProcessElement
-    public void processElement(ProcessContext c) {
+    public void processElement(
+        @Element KV<Integer, Iterable<KV<KeyT, ValueT>>> element, ProcessContext c)
+        throws IOException, InterruptedException {
 
       Configuration conf = c.sideInput(configView);
 
-      Integer taskID = c.element().getKey();
+      Integer taskID = element.getKey();
 
-      TaskIdContextHolder<KeyT, ValueT> taskContextHolder = getOrCreateTaskContextHolder(taskID, conf);
-
-      try {
-
-        setupWriteCommitTask(c, taskContextHolder);
-
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        String message =
-            String.format(
-                "Thread for task with id %s was interrupted",
-                taskContextHolder.taskAttemptContext.getTaskAttemptID());
-        logAndThrowException(e, message);
-      } catch (IOException e) {
-        String message =
-            String.format(
-                "Task with id %s failed.", taskContextHolder.taskAttemptContext.getTaskAttemptID());
-        logAndThrowException(e, message);
-        return;
+      TaskContext<KeyT, ValueT> taskContext;
+      if (c.pane().isFirst()) {
+        taskContext = setupTask(taskID, conf);
+      } else {
+        taskContext = getTask(taskID);
       }
 
-      c.output(taskID);
+      write(element, taskContext);
+      if (c.pane().isLast()) {
+        taskContext.getOutputCommitter().commitTask(taskContext.getTaskAttemptContext());
+        c.output(taskID);
+      }
     }
 
-    private void setupWriteCommitTask(ProcessContext c, TaskIdContextHolder<KeyT, ValueT> taskContextHolder)
+    private TaskContext<KeyT, ValueT> getTask(Integer taskID) {
+      return checkNotNull(
+          taskIdContextMap.get(taskID),
+          "Unable to process write task with id %s. Reason: Task was not properly set.",
+          taskID);
+    }
+
+    private void write(
+        KV<Integer, Iterable<KV<KeyT, ValueT>>> element, TaskContext<KeyT, ValueT> taskContext)
         throws IOException, InterruptedException {
 
-      // setup task
-      taskContextHolder.getOutputCommitter().setupTask(taskContextHolder.getTaskAttemptContext());
-
       // write and close
-      RecordWriter<KeyT, ValueT> recordWriter = taskContextHolder.getRecordWriter();
-      for (KV<KeyT, ValueT> kv : Objects.requireNonNull(c.element().getValue())) {
+      RecordWriter<KeyT, ValueT> recordWriter = taskContext.getRecordWriter();
+      for (KV<KeyT, ValueT> kv : Objects.requireNonNull(element.getValue())) {
         recordWriter.write(kv.getKey(), kv.getValue());
       }
-      recordWriter.close(taskContextHolder.getTaskAttemptContext());
-
-      // commit task
-      taskContextHolder.getOutputCommitter().commitTask(taskContextHolder.getTaskAttemptContext());
+      recordWriter.close(taskContext.getTaskAttemptContext());
     }
 
-    private TaskIdContextHolder<KeyT, ValueT> getOrCreateTaskContextHolder(
-        Integer taskId, Configuration conf) {
+    private TaskContext<KeyT, ValueT> setupTask(Integer taskId, Configuration conf)
+        throws IOException {
 
-      return taskIdContextHolderMap.computeIfAbsent(
-          taskId, (id) -> new TaskIdContextHolder<>(id, conf));
-    }
+      checkArgument(
+          !taskIdContextMap.containsKey(taskId),
+          "Task with id %s of job %s was already set up!",
+          taskId,
+          HadoopUtils.getJobId(conf).getJtIdentifier());
 
-    private void logAndThrowException(Throwable e, String message) {
-      LOGGER.warn(message, e);
-      throw new RuntimeException(message, e);
+      TaskContext<KeyT, ValueT> taskContext = new TaskContext<>(taskId, conf);
+      taskIdContextMap.put(taskId, taskContext);
+
+      taskContext.getOutputCommitter().setupTask(taskContext.getTaskAttemptContext());
+
+      return taskContext;
     }
   }
 }

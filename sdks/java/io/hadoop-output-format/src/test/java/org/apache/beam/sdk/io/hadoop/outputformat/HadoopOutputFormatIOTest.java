@@ -109,9 +109,9 @@ public class HadoopOutputFormatIOTest {
   public void testWriteValidationFailsMissingOutputFormatInConf() {
     Configuration configuration = new Configuration();
     configuration.setClass(
-        HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR, Text.class, Object.class);
+        HadoopOutputFormatIO.OUTPUT_KEY_CLASS, Text.class, Object.class);
     configuration.setClass(
-        HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR, Employee.class, Object.class);
+        HadoopOutputFormatIO.OUTPUT_VALUE_CLASS, Employee.class, Object.class);
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage("Configuration must contain \"mapreduce.job.outputformat.class\"");
     HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
@@ -129,7 +129,7 @@ public class HadoopOutputFormatIOTest {
     configuration.setClass(
         HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR, TextOutputFormat.class, OutputFormat.class);
     configuration.setClass(
-        HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR, Employee.class, Object.class);
+        HadoopOutputFormatIO.OUTPUT_VALUE_CLASS, Employee.class, Object.class);
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage("Configuration must contain \"mapreduce.job.output.key.class\"");
     HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
@@ -147,7 +147,7 @@ public class HadoopOutputFormatIOTest {
     configuration.setClass(
         HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR, TextOutputFormat.class, OutputFormat.class);
     configuration.setClass(
-        HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR, Text.class, Object.class);
+        HadoopOutputFormatIO.OUTPUT_KEY_CLASS, Text.class, Object.class);
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage("Configuration must contain \"mapreduce.job.output.value.class\"");
     HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
@@ -235,13 +235,13 @@ public class HadoopOutputFormatIOTest {
     assertThat(
         displayData,
         hasDisplayItem(
-            HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR,
-            conf.get(HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR)));
+            HadoopOutputFormatIO.OUTPUT_KEY_CLASS,
+            conf.get(HadoopOutputFormatIO.OUTPUT_KEY_CLASS)));
     assertThat(
         displayData,
         hasDisplayItem(
-            HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR,
-            conf.get(HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR)));
+            HadoopOutputFormatIO.OUTPUT_VALUE_CLASS,
+            conf.get(HadoopOutputFormatIO.OUTPUT_VALUE_CLASS)));
     assertThat(
         displayData,
         hasDisplayItem(
