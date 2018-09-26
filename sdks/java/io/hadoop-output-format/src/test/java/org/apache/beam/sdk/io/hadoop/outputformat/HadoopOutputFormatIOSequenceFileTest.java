@@ -122,8 +122,8 @@ public class HadoopOutputFormatIOSequenceFileTest {
 
     conf.setClass(
         HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR, outputFormatClass, OutputFormat.class);
-    conf.setClass(HadoopOutputFormatIO.OUTPUT_FORMAT_KEY_CLASS_ATTR, keyClass, Object.class);
-    conf.setClass(HadoopOutputFormatIO.OUTPUT_FORMAT_VALUE_CLASS_ATTR, valueClass, Object.class);
+    conf.setClass(HadoopOutputFormatIO.OUTPUT_KEY_CLASS, keyClass, Object.class);
+    conf.setClass(HadoopOutputFormatIO.OUTPUT_VALUE_CLASS, valueClass, Object.class);
     conf.setInt(HadoopOutputFormatIO.NUM_REDUCES, reducersCount);
 
     conf.set(FileOutputFormat.OUTDIR, path);
