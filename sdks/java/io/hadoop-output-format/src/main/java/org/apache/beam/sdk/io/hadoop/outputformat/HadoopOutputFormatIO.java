@@ -15,11 +15,13 @@
 package org.apache.beam.sdk.io.hadoop.outputformat;
 
 import com.google.auto.value.AutoValue;
+import com.google.common.collect.Iterables;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.AtomicCoder;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.display.DisplayData;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.values.*;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.*;
@@ -27,13 +29,16 @@ import org.apache.hadoop.mapreduce.task.JobContextImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import java.io.*;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 /**
  * A {@link HadoopOutputFormatIO} is a Transform for writing data to any sink which implements
@@ -105,6 +110,38 @@ public class HadoopOutputFormatIO {
     return new AutoValue_HadoopOutputFormatIO_Write.Builder<>();
   }
 
+  interface IConfigurationTransform<KeyT, ValueT> {
+
+    PTransform<PCollection<? extends KV<KeyT, ValueT>>, PCollection<Configuration>>
+        getConfigTransform();
+
+    default CombineFnBase.GlobalCombineFn<Configuration, ?, Configuration> getConfigCombine() {
+      return Combine.IterableCombineFn.of(
+          (configurations) ->
+              Optional.ofNullable(Iterables.getFirst(configurations, null))
+                  .orElseThrow(() -> new IllegalStateException("Any configuration found!")));
+    }
+  }
+
+  private static class DefaultConfigurationTransform<KeyT, ValueT>
+      implements IConfigurationTransform<KeyT, ValueT> {
+
+    private PTransform<PCollection<? extends KV<KeyT, ValueT>>, PCollection<Configuration>>
+        configTransform;
+
+    public DefaultConfigurationTransform(
+        PTransform<PCollection<? extends KV<KeyT, ValueT>>, PCollection<Configuration>>
+            configTransform) {
+      this.configTransform = configTransform;
+    }
+
+    @Override
+    public PTransform<PCollection<? extends KV<KeyT, ValueT>>, PCollection<Configuration>>
+        getConfigTransform() {
+      return configTransform;
+    }
+  }
+
   /**
    * A {@link PTransform} that writes to any data sink which implements Hadoop OutputFormat. For
    * e.g. Cassandra, Elasticsearch, HBase, Redis, Postgres, etc. See the class-level Javadoc on
@@ -118,33 +155,18 @@ public class HadoopOutputFormatIO {
   public abstract static class Write<KeyT, ValueT>
       extends PTransform<PCollection<KV<KeyT, ValueT>>, PDone> {
 
+    @Nullable
     public abstract Configuration getConfiguration();
 
-    public abstract TypeDescriptor<?> getOutputFormatClass();
-
-    public abstract TypeDescriptor<KeyT> getOutputFormatKeyClass();
-
-    public abstract TypeDescriptor<ValueT> getOutputFormatValueClass();
-
-    public abstract Integer getReducersCount();
-
-    public abstract Partitioner<KeyT, ValueT> getPartitioner();
+    @Nullable
+    public abstract IConfigurationTransform<KeyT, ValueT> getConfigTransform();
 
     @AutoValue.Builder
     abstract static class Builder<KeyT, ValueT> {
       abstract Builder<KeyT, ValueT> setConfiguration(Configuration configuration);
 
-      abstract Builder<KeyT, ValueT> setOutputFormatClass(TypeDescriptor<?> outputFormatClass);
-
-      abstract Builder<KeyT, ValueT> setOutputFormatKeyClass(
-          TypeDescriptor<KeyT> outputFormatKeyClass);
-
-      abstract Builder<KeyT, ValueT> setOutputFormatValueClass(
-          TypeDescriptor<ValueT> outputFormatValueClass);
-
-      abstract Builder<KeyT, ValueT> setReducersCount(Integer partitionsCount);
-
-      abstract Builder<KeyT, ValueT> setPartitioner(Partitioner<KeyT, ValueT> partitioner);
+      abstract Builder<KeyT, ValueT> setConfigTransform(
+          IConfigurationTransform<KeyT, ValueT> newConfigTransform);
 
       abstract Write<KeyT, ValueT> build();
 
@@ -152,52 +174,22 @@ public class HadoopOutputFormatIO {
       @SuppressWarnings("unchecked")
       public Write<KeyT, ValueT> withConfiguration(Configuration configuration)
           throws IllegalArgumentException {
+        checkArgument(Objects.nonNull(configuration), "Configuration can not be null");
 
-        validateConfiguration(configuration);
-        fillDefaultPropertiesIfMissing(configuration);
+        return setConfiguration(new Configuration(configuration)).build();
+      }
 
-        TypeDescriptor<?> outputFormatClass =
-            TypeDescriptor.of(configuration.getClass(OUTPUT_FORMAT_CLASS_ATTR, null));
-        TypeDescriptor<KeyT> outputFormatKeyClass =
-            (TypeDescriptor<KeyT>)
-                TypeDescriptor.of(configuration.getClass(OUTPUT_KEY_CLASS, null));
-        TypeDescriptor<ValueT> outputFormatValueClass =
-            (TypeDescriptor<ValueT>)
-                TypeDescriptor.of(configuration.getClass(OUTPUT_VALUE_CLASS, null));
+      public Write<KeyT, ValueT> withConfigurationTransformation(
+          PTransform<PCollection<? extends KV<KeyT, ValueT>>, PCollection<Configuration>>
+              configurationTransformation) {
 
-        int reducersCount = HadoopUtils.getReducersCount(configuration);
-        Partitioner<KeyT, ValueT> partitioner = HadoopUtils.getPartitioner(configuration);
-
-        return setConfiguration(new Configuration(configuration))
-            .setOutputFormatClass(outputFormatClass)
-            .setOutputFormatKeyClass(outputFormatKeyClass)
-            .setOutputFormatValueClass(outputFormatValueClass)
-            .setReducersCount(reducersCount)
-            .setPartitioner(partitioner)
+        return setConfigTransform(new DefaultConfigurationTransform<>(configurationTransformation))
             .build();
       }
 
-      private void fillDefaultPropertiesIfMissing(Configuration configuration) {
-        configuration.setIfUnset(NUM_REDUCES, String.valueOf(HadoopUtils.DEFAULT_NUM_REDUCERS));
-        configuration.setIfUnset(
-            PARTITIONER_CLASS_ATTR, HadoopUtils.DEFAULT_PARTITIONER_CLASS_ATTR.getName());
-      }
-
-      /**
-       * Validates that the mandatory configuration properties such as OutputFormat class,
-       * OutputFormat key and value classes are provided in the Hadoop configuration.
-       */
-      private void validateConfiguration(Configuration configuration) {
-        checkArgument(configuration != null, "Configuration can not be null");
-        checkArgument(
-            configuration.get(OUTPUT_FORMAT_CLASS_ATTR) != null,
-            "Configuration must contain \"" + OUTPUT_FORMAT_CLASS_ATTR + "\"");
-        checkArgument(
-            configuration.get(OUTPUT_KEY_CLASS) != null,
-            "Configuration must contain \"" + OUTPUT_KEY_CLASS + "\"");
-        checkArgument(
-            configuration.get(OUTPUT_VALUE_CLASS) != null,
-            "Configuration must contain \"" + OUTPUT_VALUE_CLASS + "\"");
+      public Write<KeyT, ValueT> withConfigurationTransformation(
+          IConfigurationTransform<KeyT, ValueT> configurationTransformation) {
+        return setConfigTransform(configurationTransformation).build();
       }
     }
 
@@ -219,27 +211,19 @@ public class HadoopOutputFormatIO {
             DisplayData.item(OUTPUT_VALUE_CLASS, hadoopConfig.get(OUTPUT_VALUE_CLASS))
                 .withLabel("OutputFormat Value Class"));
         builder.addIfNotNull(
-            DisplayData.item(PARTITIONER_CLASS_ATTR, hadoopConfig.get(PARTITIONER_CLASS_ATTR))
+            DisplayData.item(
+                    PARTITIONER_CLASS_ATTR,
+                    hadoopConfig.get(
+                        PARTITIONER_CLASS_ATTR,
+                        HadoopUtils.DEFAULT_PARTITIONER_CLASS_ATTR.getName()))
                 .withLabel("Partitioner Class"));
-        builder.addIfNotNull(
-            DisplayData.item(NUM_REDUCES, hadoopConfig.get(NUM_REDUCES))
-                .withLabel("Reducers Count"));
       }
     }
 
     @Override
     public PDone expand(PCollection<KV<KeyT, ValueT>> input) {
 
-      // TODO add branch for streaming
-      PCollectionView<Configuration> configView = null;
-      if (input.isBounded().equals(PCollection.IsBounded.BOUNDED)) {
-        configView = createGlobalConfigCollectionView(input);
-      }
-      //      else if (!input
-      //          .getWindowingStrategy()
-      //          .equals(WindowingStrategy.globalDefault())) { // TODO not global window
-      //        //        configView = Transformation
-      //      }
+      PCollectionView<Configuration> configView = createConfigCollectionView(input);
 
       return processJob(input, configView);
     }
@@ -249,8 +233,6 @@ public class HadoopOutputFormatIO {
 
       TypeDescriptor<Iterable<Integer>> iterableIntType =
           TypeDescriptors.iterables(TypeDescriptors.integers());
-
-      validateInput(input);
 
       return PDone.in(
           input
@@ -266,7 +248,8 @@ public class HadoopOutputFormatIO {
               .setTypeDescriptor(TypeDescriptors.integers())
               .apply(
                   "CollectWriteTasks",
-                  Combine.globally(new IterableCombinerFn<>(TypeDescriptors.integers())))
+                  Combine.globally(new IterableCombinerFn<>(TypeDescriptors.integers()))
+                      .withoutDefaults())
               .setTypeDescriptor(iterableIntType)
               .apply(
                   "CommitWriteJob",
@@ -274,8 +257,119 @@ public class HadoopOutputFormatIO {
               .getPipeline());
     }
 
-    private void validateInput(PCollection<KV<KeyT, ValueT>> input) {
-      TypeDescriptor<KV<KeyT, ValueT>> inputTypeDescriptor = input.getTypeDescriptor();
+    private PCollectionView<Configuration> createConfigCollectionView(
+        PCollection<KV<KeyT, ValueT>> input) {
+
+      TypeDescriptor<Configuration> configType = new TypeDescriptor<Configuration>() {};
+      input
+          .getPipeline()
+          .getCoderRegistry()
+          .registerCoderForType(configType, new ConfigurationCoder());
+
+      PCollection<Configuration> config = createConfiguration(input);
+
+      PCollectionView<Configuration> configView =
+          config
+              .setTypeDescriptor(configType)
+              .apply("ValidateConfiguration", ParDo.of(new ConfigurationValidatorFn()))
+              .setTypeDescriptor(configType)
+              .apply(
+                  "ValidateInputWithOutputConfig",
+                  ParDo.of(new InputValidatorFn<>(input.getTypeDescriptor())))
+              .setTypeDescriptor(configType)
+              .apply("SetupWriteJob", ParDo.of(new SetupJobFn()))
+              .setTypeDescriptor(configType)
+              .apply(View.asSingleton());
+
+      return configView;
+    }
+
+    private PCollection<Configuration> createConfiguration(PCollection<KV<KeyT, ValueT>> input) {
+
+      if (input.isBounded().equals(PCollection.IsBounded.UNBOUNDED)
+          && input.getWindowingStrategy().equals(WindowingStrategy.globalDefault())) {
+        throw new IllegalStateException(
+            String.format(
+                "Cannot work with %s and GLOBAL %s",
+                PCollection.IsBounded.UNBOUNDED, WindowingStrategy.class.getSimpleName()));
+      }
+
+      PCollection<Configuration> config;
+      if (getConfiguration() != null) {
+        config =
+            input
+                .getPipeline()
+                .apply("CreateOutputConfig", Create.<Configuration>of(getConfiguration()));
+      } else if (getConfigTransform() != null) {
+        config =
+            input
+                .apply("TransformDataIntoConfig", getConfigTransform().getConfigTransform())
+                .apply(Combine.globally(getConfigTransform().getConfigCombine()).withoutDefaults());
+      } else {
+        throw new IllegalStateException("Configuration reaching method was not set!");
+      }
+
+      return config;
+    }
+
+    public static <KeyT, ValueT> Builder<KeyT, ValueT> builder() {
+      return new AutoValue_HadoopOutputFormatIO_Write.Builder<>();
+    }
+  }
+
+  private static class ConfigurationValidatorFn extends DoFn<Configuration, Configuration> {
+
+    @DoFn.ProcessElement
+    public void processElement(
+        @DoFn.Element Configuration conf, OutputReceiver<Configuration> receiver) {
+      Configuration validatedConf = new Configuration(conf);
+      validateConfiguration(validatedConf);
+      fillDefaultPropertiesIfMissing(validatedConf);
+
+      receiver.output(validatedConf);
+    }
+
+    private void fillDefaultPropertiesIfMissing(Configuration conf) {
+      conf.setIfUnset(NUM_REDUCES, String.valueOf(HadoopUtils.DEFAULT_NUM_REDUCERS));
+      conf.setIfUnset(PARTITIONER_CLASS_ATTR, HadoopUtils.DEFAULT_PARTITIONER_CLASS_ATTR.getName());
+    }
+
+    /**
+     * Validates that the mandatory configuration properties such as OutputFormat class,
+     * OutputFormat key and value classes are provided in the Hadoop configuration.
+     */
+    private void validateConfiguration(Configuration conf) {
+
+      checkArgument(conf != null, "Configuration can not be null");
+      checkArgument(
+          conf.get(OUTPUT_FORMAT_CLASS_ATTR) != null,
+          "Configuration must contain \"" + OUTPUT_FORMAT_CLASS_ATTR + "\"");
+      checkArgument(
+          conf.get(OUTPUT_KEY_CLASS) != null,
+          "Configuration must contain \"" + OUTPUT_KEY_CLASS + "\"");
+      checkArgument(
+          conf.get(OUTPUT_VALUE_CLASS) != null,
+          "Configuration must contain \"" + OUTPUT_VALUE_CLASS + "\"");
+    }
+  }
+
+  private static class InputValidatorFn<KeyT, ValueT> extends DoFn<Configuration, Configuration> {
+
+    private TypeDescriptor<KV<KeyT, ValueT>> inputTypeDescriptor;
+
+    public InputValidatorFn(TypeDescriptor<KV<KeyT, ValueT>> inputTypeDescriptor) {
+      this.inputTypeDescriptor = inputTypeDescriptor;
+    }
+
+    @SuppressWarnings("unchecked")
+    @DoFn.ProcessElement
+    public void processElement(
+        @DoFn.Element Configuration configuration, OutputReceiver<Configuration> receiver) {
+      TypeDescriptor<KeyT> outputFormatKeyClass =
+          (TypeDescriptor<KeyT>) TypeDescriptor.of(configuration.getClass(OUTPUT_KEY_CLASS, null));
+      TypeDescriptor<ValueT> outputFormatValueClass =
+          (TypeDescriptor<ValueT>)
+              TypeDescriptor.of(configuration.getClass(OUTPUT_VALUE_CLASS, null));
 
       checkArgument(
           inputTypeDescriptor != null,
@@ -288,34 +382,17 @@ public class HadoopOutputFormatIO {
           KV.class);
       checkArgument(
           inputTypeDescriptor.equals(
-              TypeDescriptors.kvs(getOutputFormatKeyClass(), getOutputFormatValueClass())),
+              TypeDescriptors.kvs(outputFormatKeyClass, outputFormatValueClass)),
           "%s expects following %ss: KV(Key: %s, Value: %s) but following %ss are set: KV(Key: %s, Value: %s)",
           Write.class.getSimpleName(),
           TypeDescriptor.class.getSimpleName(),
-          getOutputFormatKeyClass().getRawType(),
-          getOutputFormatValueClass().getRawType(),
+          outputFormatKeyClass.getRawType(),
+          outputFormatValueClass.getRawType(),
           TypeDescriptor.class.getSimpleName(),
           inputTypeDescriptor.resolveType(KV.class.getTypeParameters()[0]),
           inputTypeDescriptor.resolveType(KV.class.getTypeParameters()[1]));
-    }
 
-    private PCollectionView<Configuration> createGlobalConfigCollectionView(
-        PCollection<KV<KeyT, ValueT>> input) {
-
-      TypeDescriptor<Configuration> confTypeDescriptor = new TypeDescriptor<Configuration>() {};
-
-      input
-          .getPipeline()
-          .getCoderRegistry()
-          .registerCoderForType(confTypeDescriptor, new ConfigurationCoder());
-
-      return input
-          .getPipeline()
-          .apply("CreateConfig", Create.<Configuration>of(getConfiguration()))
-          .setTypeDescriptor(confTypeDescriptor)
-          .apply("SetupJob", ParDo.of(new SetupJobFn()))
-          .setTypeDescriptor(confTypeDescriptor)
-          .apply(View.asSingleton());
+      receiver.output(configuration);
     }
   }
 
@@ -355,7 +432,10 @@ public class HadoopOutputFormatIO {
         OutputFormat<KeyT, ValueT> outputFormatObj, TaskAttemptContext taskAttemptContext)
         throws IllegalStateException {
       try {
-        LOGGER.info("Creating new RecordWriter.");
+        LOGGER.info(
+            "Creating new RecordWriter for task {} of Job with id {}.",
+            taskAttemptContext.getTaskAttemptID().getTaskID().getId(),
+            taskAttemptContext.getJobID().getJtIdentifier());
         return outputFormatObj.getRecordWriter(taskAttemptContext);
       } catch (InterruptedException | IOException e) {
         throw new IllegalStateException("Unable to create RecordWriter object: ", e);
@@ -404,24 +484,36 @@ public class HadoopOutputFormatIO {
 
     @DoFn.ProcessElement
     public void processElement(
-        @DoFn.Element Configuration config, OutputReceiver<Configuration> receiver) {
+        @DoFn.Element Configuration config,
+        OutputReceiver<Configuration> receiver,
+        ProcessContext c,
+        BoundedWindow window) {
 
       Configuration hadoopConf = new Configuration(config);
 
-      setupJob(hadoopConf);
+      setupJob(hadoopConf, c, window);
       receiver.output(new Configuration(hadoopConf));
     }
 
-    private void setupJob(Configuration conf) {
+    private void setupJob(Configuration conf, ProcessContext c, BoundedWindow window) {
       try {
 
-        JobID jobId = HadoopUtils.createJobId();
+        JobID jobId = HadoopUtils.createJobId(String.valueOf(window.maxTimestamp().getMillis()));
+
         TaskAttemptContext setupTaskContext = HadoopUtils.createSetupTaskContext(conf, jobId);
         OutputFormat<?, ?> jobOutputFormat = HadoopUtils.createOutputFormatFromConfig(conf);
         jobOutputFormat.checkOutputSpecs(setupTaskContext);
         jobOutputFormat.getOutputCommitter(setupTaskContext).setupJob(setupTaskContext);
 
+        LOGGER.info(
+            "Job with id {} successfully configured from window with max timestamp {} and pane with index {}, is first: {}.",
+            jobId.getJtIdentifier(),
+            window.maxTimestamp(),
+            c.pane().getIndex(),
+            c.pane().isFirst());
+
         conf.set(MRJobConfig.ID, jobId.getJtIdentifier());
+
       } catch (Exception e) {
         throw new RuntimeException("Unable to setup job.", e);
       }
@@ -530,7 +622,7 @@ public class HadoopOutputFormatIO {
 
     @ProcessElement
     public void processElement(
-        @Element KV<Integer, Iterable<KV<KeyT, ValueT>>> element, ProcessContext c)
+        @Element KV<Integer, Iterable<KV<KeyT, ValueT>>> element, ProcessContext c, BoundedWindow b)
         throws IOException, InterruptedException {
 
       Configuration conf = c.sideInput(configView);
@@ -541,25 +633,29 @@ public class HadoopOutputFormatIO {
       if (c.pane().isFirst()) {
         taskContext = setupTask(taskID, conf);
       } else {
-        taskContext = getTask(taskID);
+        taskContext = getTask(taskID, conf);
       }
 
-      write(element, taskContext);
+      write(element, taskContext, c, b);
       if (c.pane().isLast()) {
         taskContext.getOutputCommitter().commitTask(taskContext.getTaskAttemptContext());
         c.output(taskID);
       }
     }
 
-    private TaskContext<KeyT, ValueT> getTask(Integer taskID) {
+    private TaskContext<KeyT, ValueT> getTask(Integer taskID, Configuration conf) {
       return checkNotNull(
           taskIdContextMap.get(taskID),
-          "Unable to process write task with id %s. Reason: Task was not properly set.",
-          taskID);
+          "Unable to process write task with id %s of Job with id %s. Reason: Task was not properly set.",
+          taskID,
+          HadoopUtils.getJobId(conf).getJtIdentifier());
     }
 
     private void write(
-        KV<Integer, Iterable<KV<KeyT, ValueT>>> element, TaskContext<KeyT, ValueT> taskContext)
+        KV<Integer, Iterable<KV<KeyT, ValueT>>> element,
+        TaskContext<KeyT, ValueT> taskContext,
+        ProcessContext c,
+        BoundedWindow b)
         throws IOException, InterruptedException {
 
       // write and close
