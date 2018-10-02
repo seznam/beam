@@ -14,6 +14,7 @@
  */
 package org.apache.beam.sdk.io.hadoop.outputformat;
 
+import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.hadoop.inputformat.Employee;
 import org.apache.beam.sdk.io.hadoop.inputformat.TestEmployeeDataSet;
 import org.apache.beam.sdk.testing.TestPipeline;
@@ -73,18 +74,6 @@ public class HadoopOutputFormatIOTest {
     return conf;
   }
 
-  @Test
-  public void testWriteBuildsCorrectly() {
-    HadoopOutputFormatIO.Write<Text, Employee> write =
-        HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(conf);
-
-    assertEquals(EmployeeOutputFormat.class, write.getOutputFormatClass().getRawType());
-    assertEquals(Text.class, write.getOutputFormatKeyClass().getRawType());
-    assertEquals(Employee.class, write.getOutputFormatValueClass().getRawType());
-    assertEquals(HadoopUtils.DEFAULT_PARTITIONER_CLASS_ATTR, write.getPartitioner().getClass());
-    assertEquals(Integer.valueOf(REDUCERS_COUNT), write.getReducersCount());
-  }
-
   /**
    * This test validates {@link HadoopOutputFormatIO.Write Write} transform object creation fails
    * with null configuration. {@link
@@ -108,13 +97,21 @@ public class HadoopOutputFormatIOTest {
   @Test
   public void testWriteValidationFailsMissingOutputFormatInConf() {
     Configuration configuration = new Configuration();
-    configuration.setClass(
-        HadoopOutputFormatIO.OUTPUT_KEY_CLASS, Text.class, Object.class);
-    configuration.setClass(
-        HadoopOutputFormatIO.OUTPUT_VALUE_CLASS, Employee.class, Object.class);
-    thrown.expect(IllegalArgumentException.class);
+    configuration.setClass(HadoopOutputFormatIO.OUTPUT_KEY_CLASS, Text.class, Object.class);
+    configuration.setClass(HadoopOutputFormatIO.OUTPUT_VALUE_CLASS, Employee.class, Object.class);
+
+    HadoopOutputFormatIO.Write<Text, Employee> writeWithWrongConfig =
+        HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
+
+    p.apply(Create.of(TestEmployeeDataSet.getEmployeeData()))
+        .setTypeDescriptor(
+            TypeDescriptors.kvs(new TypeDescriptor<Text>() {}, new TypeDescriptor<Employee>() {}))
+        .apply("Write", writeWithWrongConfig);
+
+    thrown.expect(Pipeline.PipelineExecutionException.class);
     thrown.expectMessage("Configuration must contain \"mapreduce.job.outputformat.class\"");
-    HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
+
+    p.run().waitUntilFinish();
   }
 
   /**
@@ -128,11 +125,18 @@ public class HadoopOutputFormatIOTest {
     Configuration configuration = new Configuration();
     configuration.setClass(
         HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR, TextOutputFormat.class, OutputFormat.class);
-    configuration.setClass(
-        HadoopOutputFormatIO.OUTPUT_VALUE_CLASS, Employee.class, Object.class);
-    thrown.expect(IllegalArgumentException.class);
+    configuration.setClass(HadoopOutputFormatIO.OUTPUT_VALUE_CLASS, Employee.class, Object.class);
+
+    p.apply(Create.of(TestEmployeeDataSet.getEmployeeData()))
+        .setTypeDescriptor(
+            TypeDescriptors.kvs(new TypeDescriptor<Text>() {}, new TypeDescriptor<Employee>() {}))
+        .apply("Write", HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration));
+
+    thrown.expect(Pipeline.PipelineExecutionException.class);
     thrown.expectMessage("Configuration must contain \"mapreduce.job.output.key.class\"");
-    HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
+
+    p.run().waitUntilFinish();
+
   }
 
   /**
@@ -146,11 +150,18 @@ public class HadoopOutputFormatIOTest {
     Configuration configuration = new Configuration();
     configuration.setClass(
         HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR, TextOutputFormat.class, OutputFormat.class);
-    configuration.setClass(
-        HadoopOutputFormatIO.OUTPUT_KEY_CLASS, Text.class, Object.class);
-    thrown.expect(IllegalArgumentException.class);
+    configuration.setClass(HadoopOutputFormatIO.OUTPUT_KEY_CLASS, Text.class, Object.class);
+
+    p.apply(Create.of(TestEmployeeDataSet.getEmployeeData()))
+        .setTypeDescriptor(
+            TypeDescriptors.kvs(new TypeDescriptor<Text>() {}, new TypeDescriptor<Employee>() {}))
+        .apply("Write", HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration));
+
+    thrown.expect(Pipeline.PipelineExecutionException.class);
     thrown.expectMessage("Configuration must contain \"mapreduce.job.output.value.class\"");
-    HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(configuration);
+
+    p.run().waitUntilFinish();
+
   }
 
   @Test
@@ -162,8 +173,7 @@ public class HadoopOutputFormatIOTest {
                 TypeDescriptors.kvs(
                     new TypeDescriptor<Text>() {}, new TypeDescriptor<Employee>() {}));
 
-    input.apply(
-        "Write", HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(conf));
+    input.apply("Write", HadoopOutputFormatIO.<Text, Employee>write().withConfiguration(conf));
     p.run();
 
     List<KV<Text, Employee>> writtenOutput = EmployeeOutputFormat.getWrittenOutput();
@@ -179,41 +189,37 @@ public class HadoopOutputFormatIOTest {
   @Test
   public void testWritingDataFailInvalidKeyType() {
 
-    TestPipeline testPipeline = TestPipeline.create();
-
     List<KV<String, Employee>> data = new ArrayList<>();
     data.add(KV.of("key", new Employee("name", "address")));
     PCollection<KV<String, Employee>> input =
-        testPipeline
-            .apply("CreateData", Create.of(data))
+        p.apply("CreateData", Create.of(data))
             .setTypeDescriptor(
                 TypeDescriptors.kvs(
                     new TypeDescriptor<String>() {}, new TypeDescriptor<Employee>() {}));
 
-    thrown.expect(IllegalArgumentException.class);
+    thrown.expect(Pipeline.PipelineExecutionException.class);
     thrown.expectMessage(String.class.getName());
 
-    input.apply(
-        "Write", HadoopOutputFormatIO.<String, Employee>write().withConfiguration(conf));
+    input.apply("Write", HadoopOutputFormatIO.<String, Employee>write().withConfiguration(conf));
+    p.run().waitUntilFinish();
   }
 
   @Test
   public void testWritingDataFailInvalidValueType() {
 
-    TestPipeline testPipeline = TestPipeline.create();
-
     List<KV<Text, Text>> data = new ArrayList<>();
     data.add(KV.of(new Text("key"), new Text("value")));
     TypeDescriptor<Text> textTypeDescriptor = new TypeDescriptor<Text>() {};
     PCollection<KV<Text, Text>> input =
-        testPipeline
-            .apply(Create.of(data))
+        p.apply(Create.of(data))
             .setTypeDescriptor(TypeDescriptors.kvs(textTypeDescriptor, textTypeDescriptor));
 
-    thrown.expect(IllegalArgumentException.class);
+    thrown.expect(Pipeline.PipelineExecutionException.class);
     thrown.expectMessage(Text.class.getName());
 
     input.apply("Write", HadoopOutputFormatIO.<Text, Text>write().withConfiguration(conf));
+
+    p.run().waitUntilFinish();
   }
 
   /**
@@ -246,10 +252,6 @@ public class HadoopOutputFormatIOTest {
         displayData,
         hasDisplayItem(
             HadoopOutputFormatIO.PARTITIONER_CLASS_ATTR,
-            conf.get(HadoopOutputFormatIO.PARTITIONER_CLASS_ATTR)));
-    assertThat(
-        displayData,
-        hasDisplayItem(
-            HadoopOutputFormatIO.NUM_REDUCES, conf.get(HadoopOutputFormatIO.NUM_REDUCES)));
+            HadoopUtils.DEFAULT_PARTITIONER_CLASS_ATTR.getName()));
   }
 }

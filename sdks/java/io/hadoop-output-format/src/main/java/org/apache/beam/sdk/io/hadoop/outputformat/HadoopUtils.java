@@ -19,6 +19,10 @@ class HadoopUtils {
     return new JobID(UUID.randomUUID().toString(), DEFAULT_JOB_NUMBER);
   }
 
+  static JobID createJobId(String id) {
+    return new JobID(id, DEFAULT_JOB_NUMBER);
+  }
+
   static TaskAttemptContext createSetupTaskContext(Configuration conf, JobID jobID) {
     final TaskID taskId = new TaskID(jobID, TaskType.JOB_SETUP, 0);
     return new TaskAttemptContextImpl(conf, new TaskAttemptID(taskId, 0));
@@ -50,12 +54,15 @@ class HadoopUtils {
   @SuppressWarnings("unchecked")
   static <KeyT, ValueT> OutputFormat<KeyT, ValueT> createOutputFormatFromConfig(Configuration conf)
       throws IllegalArgumentException {
-    return (OutputFormat<KeyT, ValueT>)createInstanceFromConfig(conf, MRJobConfig.OUTPUT_FORMAT_CLASS_ATTR, null);
+    return (OutputFormat<KeyT, ValueT>)
+        createInstanceFromConfig(conf, MRJobConfig.OUTPUT_FORMAT_CLASS_ATTR, null);
   }
 
   @SuppressWarnings("unchecked")
   static <KeyT, ValueT> Partitioner<KeyT, ValueT> getPartitioner(Configuration conf) {
-    return (Partitioner<KeyT, ValueT>) createInstanceFromConfig(conf, MRJobConfig.PARTITIONER_CLASS_ATTR, DEFAULT_PARTITIONER_CLASS_ATTR);
+    return (Partitioner<KeyT, ValueT>)
+        createInstanceFromConfig(
+            conf, MRJobConfig.PARTITIONER_CLASS_ATTR, DEFAULT_PARTITIONER_CLASS_ATTR);
   }
 
   private static Object createInstanceFromConfig(
@@ -68,7 +75,6 @@ class HadoopUtils {
                 "Configuration does not contains any value under %s key. Unable to initialize class instance from configuration. ",
                 configClassKey));
       }
-
 
       Class<?> requiredClass =
           defaultClass == null
