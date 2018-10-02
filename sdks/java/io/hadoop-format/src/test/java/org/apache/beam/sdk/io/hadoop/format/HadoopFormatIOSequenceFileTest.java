@@ -1,5 +1,13 @@
-package org.apache.beam.sdk.io.hadoop.outputformat;
+package org.apache.beam.sdk.io.hadoop.format;
 
+import static org.hamcrest.Matchers.equalTo;
+
+import java.io.File;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.beam.examples.WordCount;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.testing.TestPipeline;
@@ -32,16 +40,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.File;
-import java.nio.file.Paths;
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import static org.hamcrest.Matchers.equalTo;
-
-public class HadoopOutputFormatIOSequenceFileTest {
+public class HadoopFormatIOSequenceFileTest {
 
   private static final Instant START_TIME = new Instant(0);
   private static final String TEST_FOLDER_NAME = "test";
@@ -98,7 +97,7 @@ public class HadoopOutputFormatIOSequenceFileTest {
         .setTypeDescriptor(
             TypeDescriptors.kvs(
                 new TypeDescriptor<Text>() {}, new TypeDescriptor<LongWritable>() {}))
-        .apply(HadoopOutputFormatIO.<Text, LongWritable>write().withConfiguration(conf));
+        .apply(HadoopFormatIO.<Text, LongWritable>write().withConfiguration(conf));
 
     pipeline.run().waitUntilFinish();
 
@@ -161,11 +160,10 @@ public class HadoopOutputFormatIOSequenceFileTest {
       Integer reducersCount) {
     Configuration conf = new Configuration();
 
-    conf.setClass(
-        HadoopOutputFormatIO.OUTPUT_FORMAT_CLASS_ATTR, outputFormatClass, OutputFormat.class);
-    conf.setClass(HadoopOutputFormatIO.OUTPUT_KEY_CLASS, keyClass, Object.class);
-    conf.setClass(HadoopOutputFormatIO.OUTPUT_VALUE_CLASS, valueClass, Object.class);
-    conf.setInt(HadoopOutputFormatIO.NUM_REDUCES, reducersCount);
+    conf.setClass(HadoopFormatIO.OUTPUT_FORMAT_CLASS_ATTR, outputFormatClass, OutputFormat.class);
+    conf.setClass(HadoopFormatIO.OUTPUT_KEY_CLASS, keyClass, Object.class);
+    conf.setClass(HadoopFormatIO.OUTPUT_VALUE_CLASS, valueClass, Object.class);
+    conf.setInt(HadoopFormatIO.NUM_REDUCES, reducersCount);
     conf.set(FileOutputFormat.OUTDIR, path);
     return conf;
   }
@@ -195,7 +193,7 @@ public class HadoopOutputFormatIOSequenceFileTest {
         .apply(new WordCount.CountWords())
         .apply("ConvertToHadoopFormat", ParDo.of(new ConvertToHadoopFormatFn()))
         .apply(
-            HadoopOutputFormatIO.<Text, LongWritable>write()
+            HadoopFormatIO.<Text, LongWritable>write()
                 .withConfigurationTransformation(ParDo.of(new ConfigProvider(outputDirPath))));
 
     pipeline.run().waitUntilFinish();
@@ -239,7 +237,7 @@ public class HadoopOutputFormatIOSequenceFileTest {
   //        .apply(ParDo.of(new ElementLogger()));
   //    //        .apply("ConvertToHadoopFormat", ParDo.of(new ConvertToHadoopFormatFn()))
   //    //        .apply(
-  //    //            HadoopOutputFormatIO.<Text, LongWritable>write()
+  //    //            HadoopFormatIO.<Text, LongWritable>write()
   //    //                .withConfigurationTransformation(ParDo.of(new
   //    // ConfigProvider(outputDirPath))));
   //
