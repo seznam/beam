@@ -61,9 +61,11 @@ public class SdkComponents {
 
   public static SdkComponents create(PipelineOptions options) {
     SdkComponents sdkComponents = new SdkComponents();
+    PortablePipelineOptions portablePipelineOptions = options.as(PortablePipelineOptions.class);
     sdkComponents.registerEnvironment(
         Environments.createOrGetDefaultEnvironment(
-            options.as(PortablePipelineOptions.class).getDefaultJavaEnvironmentUrl()));
+            portablePipelineOptions.getDefaultEnvironmentType(),
+            portablePipelineOptions.getDefaultEnvironmentConfig()));
     return sdkComponents;
   }
 
@@ -206,8 +208,7 @@ public class SdkComponents {
     if (existing != null) {
       return existing;
     }
-    String url = env.getUrl();
-    String name = uniqify(url, environmentIds.values());
+    String name = uniqify(env.getUrn(), environmentIds.values());
     environmentIds.put(env, name);
     componentsBuilder.putEnvironments(name, env);
     return name;

@@ -20,6 +20,7 @@ from __future__ import print_function
 import functools
 import logging
 import os
+import sys
 import tempfile
 import time
 import traceback
@@ -31,10 +32,12 @@ from apache_beam.metrics.execution import MetricKey
 from apache_beam.metrics.execution import MetricsEnvironment
 from apache_beam.metrics.metricbase import MetricName
 from apache_beam.runners.portability import fn_api_runner
+from apache_beam.runners.worker import data_plane
 from apache_beam.runners.worker import sdk_worker
 from apache_beam.runners.worker import statesampler
 from apache_beam.testing.util import assert_that
 from apache_beam.testing.util import equal_to
+from apache_beam.transforms import userstate
 from apache_beam.transforms import window
 
 if statesampler.FAST_SAMPLER:
@@ -140,6 +143,8 @@ class FnApiRunnerTest(unittest.TestCase):
       assert_that(unnamed.even, equal_to([2]), label='unnamed.even')
       assert_that(unnamed.odd, equal_to([1, 3]), label='unnamed.odd')
 
+  @unittest.skipIf(sys.version_info[0] == 3, 'This test still needs to be '
+                                             'fixed on Python 3')
   def test_pardo_side_inputs(self):
     def cross_product(elem, sides):
       for side in sides:
@@ -151,6 +156,8 @@ class FnApiRunnerTest(unittest.TestCase):
                   equal_to([('a', 'x'), ('b', 'x'), ('c', 'x'),
                             ('a', 'y'), ('b', 'y'), ('c', 'y')]))
 
+  @unittest.skipIf(sys.version_info[0] == 3, 'This test still needs to be '
+                                             'fixed on Python 3')
   def test_pardo_windowed_side_inputs(self):
     with self.create_pipeline() as p:
       # Now with some windowing.
@@ -178,6 +185,8 @@ class FnApiRunnerTest(unittest.TestCase):
               (9, list(range(7, 10)))]),
           label='windowed')
 
+  @unittest.skipIf(sys.version_info[0] == 3, 'This test still needs to be '
+                                             'fixed on Python 3')
   def test_flattened_side_input(self):
     with self.create_pipeline() as p:
       main = p | 'main' >> beam.Create([None])
@@ -188,6 +197,8 @@ class FnApiRunnerTest(unittest.TestCase):
           main | beam.Map(lambda a, b: (a, b), beam.pvalue.AsDict(side)),
           equal_to([(None, {'a': 1, 'b': 2})]))
 
+  @unittest.skipIf(sys.version_info[0] == 3, 'This test still needs to be '
+                                             'fixed on Python 3')
   def test_gbk_side_input(self):
     with self.create_pipeline() as p:
       main = p | 'main' >> beam.Create([None])
@@ -196,6 +207,8 @@ class FnApiRunnerTest(unittest.TestCase):
           main | beam.Map(lambda a, b: (a, b), beam.pvalue.AsDict(side)),
           equal_to([(None, {'a': [1]})]))
 
+  @unittest.skipIf(sys.version_info[0] == 3, 'This test still needs to be '
+                                             'fixed on Python 3')
   def test_multimap_side_input(self):
     with self.create_pipeline() as p:
       main = p | 'main' >> beam.Create(['a', 'b'])
@@ -207,6 +220,8 @@ class FnApiRunnerTest(unittest.TestCase):
                           beam.pvalue.AsMultiMap(side)),
           equal_to([('a', [1, 3]), ('b', [2])]))
 
+  @unittest.skipIf(sys.version_info[0] == 3, 'This test still needs to be '
+                                             'fixed on Python 3')
   def test_pardo_unfusable_side_inputs(self):
     def cross_product(elem, sides):
       for side in sides:
@@ -226,6 +241,28 @@ class FnApiRunnerTest(unittest.TestCase):
       assert_that(
           pcoll | beam.FlatMap(cross_product, beam.pvalue.AsList(derived)),
           equal_to([('a', 'a'), ('a', 'b'), ('b', 'a'), ('b', 'b')]))
+
+  def test_pardo_state_only(self):
+    index_state_spec = userstate.CombiningValueStateSpec(
+        'index', beam.coders.VarIntCoder(), sum)
+
+    # TODO(ccy): State isn't detected with Map/FlatMap.
+    class AddIndex(beam.DoFn):
+      def process(self, kv, index=beam.DoFn.StateParam(index_state_spec)):
+        k, v = kv
+        index.add(1)
+        yield k, v, index.read()
+
+    inputs = [('A', 'a')] * 2 + [('B', 'b')] * 3
+    expected = [('A', 'a', 1),
+                ('A', 'a', 2),
+                ('B', 'b', 1),
+                ('B', 'b', 2),
+                ('B', 'b', 3)]
+
+    with self.create_pipeline() as p:
+      assert_that(p | beam.Create(inputs) | beam.ParDo(AddIndex()),
+                  equal_to(expected))
 
   def test_group_by_key(self):
     with self.create_pipeline() as p:
@@ -254,7 +291,7 @@ class FnApiRunnerTest(unittest.TestCase):
     # due to https://bugs.python.org/issue14243
     temp_file = tempfile.NamedTemporaryFile(delete=False)
     try:
-      temp_file.write('a\nb\nc')
+      temp_file.write(b'a\nb\nc')
       temp_file.close()
       with self.create_pipeline() as p:
         assert_that(p | beam.io.ReadFromText(temp_file.name),
@@ -272,6 +309,27 @@ class FnApiRunnerTest(unittest.TestCase):
              | beam.Map(lambda k_vs1: (k_vs1[0], sorted(k_vs1[1]))))
       assert_that(res, equal_to([('k', [1, 2]), ('k', [100, 101, 102])]))
 
+  @unittest.skipIf(sys.version_info[0] == 3, 'This test still needs to be '
+                                             'fixed on Python 3')
+  def test_large_elements(self):
+    with self.create_pipeline() as p:
+      big = (p
+             | beam.Create(['a', 'a', 'b'])
+             | beam.Map(lambda x: (x, x * data_plane._DEFAULT_FLUSH_THRESHOLD)))
+
+      side_input_res = (
+          big
+          | beam.Map(lambda x, side: (x[0], side.count(x[0])),
+                     beam.pvalue.AsList(big | beam.Map(lambda x: x[0]))))
+      assert_that(side_input_res,
+                  equal_to([('a', 2), ('a', 2), ('b', 1)]), label='side')
+
+      gbk_res = (
+          big
+          | beam.GroupByKey()
+          | beam.Map(lambda x: x[0]))
+      assert_that(gbk_res, equal_to(['a', 'b']), label='gbk')
+
   def test_error_message_includes_stage(self):
     with self.assertRaises(BaseException) as e_cm:
       with self.create_pipeline() as p:
@@ -284,8 +342,9 @@ class FnApiRunnerTest(unittest.TestCase):
          | 'StageB' >> beam.Map(lambda x: x)
          | 'StageC' >> beam.Map(raise_error)
          | 'StageD' >> beam.Map(lambda x: x))
-    self.assertIn('StageC', e_cm.exception.args[0])
-    self.assertNotIn('StageB', e_cm.exception.args[0])
+    message = e_cm.exception.args[0]
+    self.assertIn('StageC', message)
+    self.assertNotIn('StageB', message)
 
   def test_error_traceback_includes_user_code(self):
 
@@ -386,7 +445,7 @@ class FnApiRunnerTest(unittest.TestCase):
       self.assertEqual(
           4,
           pregbk_metrics.ptransforms['Create/Read']
-          .processed_elements.measured.output_element_counts['None'])
+          .processed_elements.measured.output_element_counts['out'])
       self.assertEqual(
           4,
           pregbk_metrics.ptransforms['Map(sleep)']

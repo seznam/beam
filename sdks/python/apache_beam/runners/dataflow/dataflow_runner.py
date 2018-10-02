@@ -40,9 +40,11 @@ from apache_beam import error
 from apache_beam import pvalue
 from apache_beam.internal import pickler
 from apache_beam.internal.gcp import json_value
+from apache_beam.options.pipeline_options import DebugOptions
 from apache_beam.options.pipeline_options import SetupOptions
 from apache_beam.options.pipeline_options import StandardOptions
 from apache_beam.options.pipeline_options import TestOptions
+from apache_beam.options.pipeline_options import WorkerOptions
 from apache_beam.portability import common_urns
 from apache_beam.pvalue import AsSideInput
 from apache_beam.runners.dataflow.internal import names
@@ -340,6 +342,16 @@ class DataflowRunner(PipelineRunner):
     if setup_options.beam_plugins is not None:
       plugins = list(set(plugins + setup_options.beam_plugins))
     setup_options.beam_plugins = plugins
+
+    # Elevate "min_cpu_platform" to pipeline option, but using the existing
+    # experiment
+    debug_options = pipeline._options.view_as(DebugOptions)
+    worker_options = pipeline._options.view_as(WorkerOptions)
+    if worker_options.min_cpu_platform:
+      experiments = ["min_cpu_platform=%s" % worker_options.min_cpu_platform]
+      if debug_options.experiments is not None:
+        experiments = list(set(experiments + debug_options.experiments))
+      debug_options.experiments = experiments
 
     self.job = apiclient.Job(pipeline._options, self.proto_pipeline)
 
@@ -774,6 +786,8 @@ class DataflowRunner(PipelineRunner):
     # TODO(mairbek): refactor if-else tree to use registerable functions.
     # Initialize the source specific properties.
 
+    standard_options = transform_node.inputs[0].pipeline.options.view_as(
+        StandardOptions)
     if not hasattr(transform.source, 'format'):
       # If a format is not set, we assume the source to be a custom source.
       source_dict = {}
@@ -804,6 +818,9 @@ class DataflowRunner(PipelineRunner):
     elif transform.source.format == 'text':
       step.add_property(PropertyNames.FILE_PATTERN, transform.source.path)
     elif transform.source.format == 'bigquery':
+      if standard_options.streaming:
+        raise ValueError('BigQuery source is not currently available for use '
+                         'in streaming pipelines.')
       step.add_property(PropertyNames.BIGQUERY_EXPORT_FORMAT, 'FORMAT_AVRO')
       # TODO(silviuc): Add table validation if transform.source.validate.
       if transform.source.table_reference is not None:
@@ -826,8 +843,6 @@ class DataflowRunner(PipelineRunner):
         raise ValueError('BigQuery source %r must specify either a table or'
                          ' a query' % transform.source)
     elif transform.source.format == 'pubsub':
-      standard_options = (
-          transform_node.inputs[0].pipeline.options.view_as(StandardOptions))
       if not standard_options.streaming:
         raise ValueError('Cloud Pub/Sub is currently available for use '
                          'only in streaming pipelines.')

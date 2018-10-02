@@ -91,12 +91,22 @@ public class StateNamespaces {
 
     private static final String WINDOW_FORMAT = "/%s/";
 
-    private Coder<W> windowCoder;
-    private W window;
+    private static <W extends BoundedWindow> String createKey(W window, Coder<W> windowCoder) {
+      try {
+        return String.format(WINDOW_FORMAT, CoderUtils.encodeToBase64(windowCoder, window));
+      } catch (CoderException e) {
+        throw new RuntimeException("Unable to generate string key from window " + window, e);
+      }
+    }
+
+    private final Coder<W> windowCoder;
+    private final W window;
+    private final String key;
 
     private WindowNamespace(Coder<W> windowCoder, W window) {
       this.windowCoder = windowCoder;
       this.window = window;
+      this.key = createKey(window, windowCoder);
     }
 
     public W getWindow() {
@@ -105,11 +115,7 @@ public class StateNamespaces {
 
     @Override
     public String stringKey() {
-      try {
-        return String.format(WINDOW_FORMAT, CoderUtils.encodeToBase64(windowCoder, window));
-      } catch (CoderException e) {
-        throw new RuntimeException("Unable to generate string key from window " + window, e);
-      }
+      return key;
     }
 
     @Override
@@ -158,9 +164,9 @@ public class StateNamespaces {
     private static final String WINDOW_AND_TRIGGER_FORMAT = "/%s/%s/";
 
     private static final int TRIGGER_RADIX = 36;
-    private Coder<W> windowCoder;
-    private W window;
-    private int triggerIndex;
+    private final Coder<W> windowCoder;
+    private final W window;
+    private final int triggerIndex;
 
     private WindowAndTriggerNamespace(Coder<W> windowCoder, W window, int triggerIndex) {
       this.windowCoder = windowCoder;

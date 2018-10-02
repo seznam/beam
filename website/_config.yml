@@ -33,7 +33,7 @@ baseurl: ""
 
 # input and output directory
 source: src
-destination: content
+destination: generated-content
 
 # the base hostname & protocol for your site
 url: "https://beam.apache.org"
@@ -60,7 +60,7 @@ kramdown:
   toc_levels:     2..6
 
 # The most recent release of Beam.
-release_latest: 2.5.0
+release_latest: 2.6.0
 
 # Plugins are configured in the Gemfile.
 

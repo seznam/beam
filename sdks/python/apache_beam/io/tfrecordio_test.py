@@ -30,7 +30,6 @@ import unittest
 from builtins import range
 
 import crcmod
-from future import standard_library
 
 import apache_beam as beam
 from apache_beam import Create
@@ -46,8 +45,6 @@ from apache_beam.testing.test_utils import TempDir
 from apache_beam.testing.util import assert_that
 from apache_beam.testing.util import equal_to
 
-standard_library.install_aliases()
-
 try:
   import tensorflow as tf  # pylint: disable=import-error
 except ImportError:
@@ -62,7 +59,7 @@ except ImportError:
 # >>> writer.close()
 # >>> with open('/tmp/python_foo.tfrecord', 'rb') as f:
 # ...   data =  base64.b64encode(f.read())
-# ...   print data
+# ...   print(data)
 FOO_RECORD_BASE64 = 'AwAAAAAAAACwmUkOZm9vYYq+/g=='
 
 # Same as above but containing two records ['foo', 'bar']

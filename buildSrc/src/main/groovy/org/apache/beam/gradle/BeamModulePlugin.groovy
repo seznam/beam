@@ -30,6 +30,7 @@ import org.gradle.api.plugins.quality.FindBugs
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.javadoc.Javadoc
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.testing.Test
@@ -232,7 +233,7 @@ class BeamModulePlugin implements Plugin<Project> {
 
     // Automatically use the official release version if we are performing a release
     // otherwise append '-SNAPSHOT'
-    project.version = '2.7.0'
+    project.version = '2.8.0'
     if (!isRelease(project)) {
       project.version += '-SNAPSHOT'
     }
@@ -301,13 +302,13 @@ class BeamModulePlugin implements Plugin<Project> {
     def generated_grpc_ga_version = "1.18.0"
     def google_cloud_bigdataoss_version = "1.9.0"
     def bigtable_version = "1.4.0"
-    def google_clients_version = "1.23.0"
+    def google_clients_version = "1.24.1"
     def google_auth_version = "0.10.0"
     def grpc_version = "1.13.1"
     def protobuf_version = "3.6.0"
     def guava_version = "20.0"
     def netty_version = "4.1.25.Final"
-    def proto_google_common_protos = "1.12.0"
+    def proto_google_common_protos_version = "1.12.0"
     def hamcrest_version = "1.3"
     def hadoop_version = "2.7.3"
     def jackson_version = "2.9.5"
@@ -356,12 +357,12 @@ class BeamModulePlugin implements Plugin<Project> {
         google_api_client_jackson2                  : "com.google.api-client:google-api-client-jackson2:$google_clients_version",
         google_api_client_java6                     : "com.google.api-client:google-api-client-java6:$google_clients_version",
         google_api_common                           : "com.google.api:api-common:1.6.0",
-        google_api_services_bigquery                : "com.google.apis:google-api-services-bigquery:v2-rev374-$google_clients_version",
-        google_api_services_clouddebugger           : "com.google.apis:google-api-services-clouddebugger:v2-rev233-$google_clients_version",
-        google_api_services_cloudresourcemanager    : "com.google.apis:google-api-services-cloudresourcemanager:v1-rev477-$google_clients_version",
-        google_api_services_dataflow                : "com.google.apis:google-api-services-dataflow:v1b3-rev221-$google_clients_version",
-        google_api_services_pubsub                  : "com.google.apis:google-api-services-pubsub:v1-rev382-$google_clients_version",
-        google_api_services_storage                 : "com.google.apis:google-api-services-storage:v1-rev124-$google_clients_version",
+        google_api_services_bigquery                : "com.google.apis:google-api-services-bigquery:v2-rev402-$google_clients_version",
+        google_api_services_clouddebugger           : "com.google.apis:google-api-services-clouddebugger:v2-rev253-$google_clients_version",
+        google_api_services_cloudresourcemanager    : "com.google.apis:google-api-services-cloudresourcemanager:v1-rev502-$google_clients_version",
+        google_api_services_dataflow                : "com.google.apis:google-api-services-dataflow:v1b3-rev257-$google_clients_version",
+        google_api_services_pubsub                  : "com.google.apis:google-api-services-pubsub:v1-rev399-$google_clients_version",
+        google_api_services_storage                 : "com.google.apis:google-api-services-storage:v1-rev136-$google_clients_version",
         google_auth_library_credentials             : "com.google.auth:google-auth-library-credentials:$google_auth_version",
         google_auth_library_oauth2_http             : "com.google.auth:google-auth-library-oauth2-http:$google_auth_version",
         google_cloud_core                           : "com.google.cloud:google-cloud-core:$google_cloud_core_version",
@@ -410,11 +411,12 @@ class BeamModulePlugin implements Plugin<Project> {
         netty_tcnative_boringssl_static             : "io.netty:netty-tcnative-boringssl-static:2.0.8.Final",
         netty_transport_native_epoll                : "io.netty:netty-transport-native-epoll:$netty_version",
         postgres                                    : "org.postgresql:postgresql:$postgres_version",
+        powermock                                   : "org.powermock:powermock-mockito-release-full:1.6.4",
         protobuf_java                               : "com.google.protobuf:protobuf-java:$protobuf_version",
         protobuf_java_util                          : "com.google.protobuf:protobuf-java-util:$protobuf_version",
         proto_google_cloud_pubsub_v1                : "com.google.api.grpc:proto-google-cloud-pubsub-v1:$generated_grpc_ga_version",
         proto_google_cloud_spanner_admin_database_v1: "com.google.api.grpc:proto-google-cloud-spanner-admin-database-v1:$generated_grpc_beta_version",
-        proto_google_common_protos                  : "com.google.api.grpc:proto-google-common-protos:$proto_google_common_protos",
+        proto_google_common_protos                  : "com.google.api.grpc:proto-google-common-protos:$proto_google_common_protos_version",
         slf4j_api                                   : "org.slf4j:slf4j-api:1.7.25",
         slf4j_simple                                : "org.slf4j:slf4j-simple:1.7.25",
         slf4j_jdk14                                 : "org.slf4j:slf4j-jdk14:1.7.25",
@@ -643,7 +645,8 @@ class BeamModulePlugin implements Plugin<Project> {
       }
       project.checkstyle { toolVersion = "8.7" }
 
-      // Ensure check runs javadoc
+      // Configures javadoc plugin and ensure check runs javadoc.
+      project.tasks.withType(Javadoc) { options.encoding = 'UTF-8' }
       project.check.dependsOn project.javadoc
 
       // Apply the eclipse and apt-eclipse plugins.  This adds the "eclipse" task and
@@ -768,10 +771,11 @@ class BeamModulePlugin implements Plugin<Project> {
 
         // Create a task which emulates the maven-archiver plugin in generating a
         // pom.properties file.
+        def pomPropertiesFile = "${project.buildDir}/publications/mavenJava/pom.properties"
         project.task('generatePomPropertiesFileForMavenJavaPublication') {
-          outputs.file "${project.buildDir}/publications/mavenJava/pom.properties"
+          outputs.file "${pomPropertiesFile}"
           doLast {
-            new File("${project.buildDir}/publications/mavenJava/pom.properties").text =
+            new File("${pomPropertiesFile}").text =
                     """version=${project.version}
 groupId=${project.group}
 artifactId=${project.name}
@@ -782,10 +786,23 @@ artifactId=${project.name}
         // Have the shaded include both the generate pom.xml and its properties file
         // emulating the behavior of the maven-archiver plugin.
         project.shadowJar {
+          def pomFile = "${project.buildDir}/publications/mavenJava/pom-default.xml"
+
+          // Validate that the artifacts exist before copying them into the jar.
+          doFirst {
+            if (!project.file("${pomFile}").exists()) {
+              throw new GradleException("Expected ${pomFile} to have been generated by the 'generatePomFileForMavenJavaPublication' task.")
+            }
+            if (!project.file("${pomPropertiesFile}").exists()) {
+              throw new GradleException("Expected ${pomPropertiesFile} to have been generated by the 'generatePomPropertiesFileForMavenJavaPublication' task.")
+            }
+          }
+
           dependsOn 'generatePomFileForMavenJavaPublication'
-          into("META-INF/maven/${project.group}/${project.name}") { from "${project.buildDir}/publications/mavenJava/pom.xml" }
+          into("META-INF/maven/${project.group}/${project.name}") { from "${pomFile}" }
+
           dependsOn project.generatePomPropertiesFileForMavenJavaPublication
-          into("META-INF/maven/${project.group}/${project.name}") { from "${project.buildDir}/publications/mavenJava/pom.properties" }
+          into("META-INF/maven/${project.group}/${project.name}") { from "${pomPropertiesFile}" }
         }
 
         // Only build artifacts for archives if we are publishing
@@ -1092,6 +1109,17 @@ artifactId=${project.name}
           testCompile it.project(path: ":beam-runners-flink_2.11", configuration: 'shadowTest')
         }
 
+        if (runner?.equalsIgnoreCase('spark')) {
+          testCompile it.project(path: ":beam-runners-spark", configuration: 'shadowTest')
+          testCompile project.library.java.spark_core
+          testCompile project.library.java.spark_streaming
+
+          // Testing the Spark runner causes a StackOverflowError if slf4j-jdk14 is on the classpath
+          project.configurations.testRuntimeClasspath {
+            exclude group: "org.slf4j", module: "slf4j-jdk14"
+          }
+        }
+
         /* include dependencies required by filesystems */
         if (filesystem?.equalsIgnoreCase('hdfs')) {
           testCompile it.project(path: ":beam-sdks-java-io-hadoop-file-system", configuration: 'shadowTest')
@@ -1100,7 +1128,7 @@ artifactId=${project.name}
 
         /* include dependencies required by AWS S3 */
         if (filesystem?.equalsIgnoreCase('s3')) {
-          testCompile it.project.project(path: ":beam-sdks-java-io-amazon-web-services", configuration: 'shadowTest')
+          testCompile it.project(path: ":beam-sdks-java-io-amazon-web-services", configuration: 'shadowTest')
         }
       }
 

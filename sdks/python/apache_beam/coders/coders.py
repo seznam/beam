@@ -22,6 +22,7 @@ Only those coders listed in __all__ are part of the public API of this module.
 from __future__ import absolute_import
 
 import base64
+import sys
 from builtins import object
 
 import google.protobuf.wrappers_pb2
@@ -62,12 +63,13 @@ __all__ = ['Coder',
 
 def serialize_coder(coder):
   from apache_beam.internal import pickler
-  return '%s$%s' % (coder.__class__.__name__, pickler.dumps(coder))
+  return b'%s$%s' % (coder.__class__.__name__.encode('utf-8'),
+                     pickler.dumps(coder))
 
 
 def deserialize_coder(serialized):
   from apache_beam.internal import pickler
-  return pickler.loads(serialized.split('$', 1)[1])
+  return pickler.loads(serialized.split(b'$', 1)[1])
 # pylint: enable=wrong-import-order, wrong-import-position
 
 
@@ -313,13 +315,17 @@ class StrUtf8Coder(Coder):
 class ToStringCoder(Coder):
   """A default string coder used if no sink coder is specified."""
 
-  def encode(self, value):
-    try:               # Python 2
-      if isinstance(value, unicode):   # pylint: disable=unicode-builtin
-        return value.encode('utf-8')
-    except NameError:  # Python 3
-      pass
-    return str(value)
+  if sys.version_info.major == 2:
+
+    def encode(self, value):
+      # pylint: disable=unicode-builtin
+      return (value.encode('utf-8') if isinstance(value, unicode)  # noqa: F821
+              else str(value))
+
+  else:
+
+    def encode(self, value):
+      return value if isinstance(value, bytes) else str(value).encode('utf-8')
 
   def decode(self, _):
     raise NotImplementedError('ToStringCoder cannot be used for decoding.')
