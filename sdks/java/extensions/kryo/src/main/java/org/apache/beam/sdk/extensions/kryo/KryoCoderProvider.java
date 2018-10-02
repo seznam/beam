@@ -37,6 +37,8 @@ import org.apache.beam.sdk.values.TypeDescriptor;
  */
 public class KryoCoderProvider extends CoderProvider {
 
+  private static final TypeDescriptor<Object> OBJECT_TYPE = new TypeDescriptor<Object>() {};
+
   /**
    * Create a new {@link KryoCoderProvider}.
    *
@@ -86,6 +88,9 @@ public class KryoCoderProvider extends CoderProvider {
       TypeDescriptor<T> typeDescriptor, List<? extends Coder<?>> componentCoders)
       throws CannotProvideCoderException {
     if (hasUserProvidedRegistration(typeDescriptor)) {
+      return (Coder) coder;
+    }
+    if (OBJECT_TYPE.equals(typeDescriptor)) {
       return (Coder) coder;
     }
     throw new CannotProvideCoderException(

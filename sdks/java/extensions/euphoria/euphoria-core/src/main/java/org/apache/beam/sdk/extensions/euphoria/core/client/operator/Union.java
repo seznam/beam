@@ -18,19 +18,27 @@
 package org.apache.beam.sdk.extensions.euphoria.core.client.operator;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.extensions.euphoria.core.annotation.audience.Audience;
 import org.apache.beam.sdk.extensions.euphoria.core.annotation.operator.Basic;
 import org.apache.beam.sdk.extensions.euphoria.core.annotation.operator.StateComplexity;
 import org.apache.beam.sdk.extensions.euphoria.core.client.dataset.Dataset;
+import org.apache.beam.sdk.extensions.euphoria.core.client.functional.UnaryFunction;
 import org.apache.beam.sdk.extensions.euphoria.core.client.operator.base.Builders;
 import org.apache.beam.sdk.extensions.euphoria.core.client.operator.base.Operator;
+import org.apache.beam.sdk.extensions.euphoria.core.client.operator.base.OptionalMethodBuilder;
 import org.apache.beam.sdk.extensions.euphoria.core.client.operator.hint.OutputHint;
 import org.apache.beam.sdk.extensions.euphoria.core.translate.OperatorTransform;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.windowing.Trigger;
+import org.apache.beam.sdk.transforms.windowing.WindowFn;
 import org.apache.beam.sdk.values.TypeDescriptor;
+import org.apache.beam.sdk.values.WindowingStrategy;
 
 /**
  * The union of at least two datasets of the same type.
@@ -129,6 +137,43 @@ public class Union<InputT> extends Operator<InputT> {
      */
     public abstract <InputT> OutputBuilder<InputT> of(List<Dataset<InputT>> dataSets);
   }
+
+  /** Builder for 'windowBy' step */
+  public interface WindowByBuilder<KeyT>
+      extends Builders.WindowBy<TriggeredByBuilder<KeyT>>,
+      OptionalMethodBuilder<WindowByBuilder<KeyT>, OutputBuilder<KeyT>>,
+      OutputBuilder<KeyT> {
+
+    @Override
+    <W extends BoundedWindow> TriggeredByBuilder<KeyT> windowBy(WindowFn<Object, W> windowing);
+
+    @Override
+    default OutputBuilder<KeyT> applyIf(
+        boolean cond, UnaryFunction<WindowByBuilder<KeyT>, OutputBuilder<KeyT>> fn) {
+      return cond ? requireNonNull(fn).apply(this) : this;
+    }
+  }
+
+  /** Builder for 'triggeredBy' step */
+  public interface TriggeredByBuilder<KeyT>
+      extends Builders.TriggeredBy<AccumulationModeBuilder<KeyT>> {
+
+    @Override
+    AccumulationModeBuilder<KeyT> triggeredBy(Trigger trigger);
+  }
+
+  /** Builder for 'accumulationMode' step */
+  public interface AccumulationModeBuilder<InputT>
+      extends Builders.AccumulationMode<WindowedOutputBuilder<InputT>> {
+
+    @Override
+    WindowedOutputBuilder<InputT> accumulationMode(
+        WindowingStrategy.AccumulationMode accumulationMode);
+  }
+
+  /** Builder for 'windowed output' step */
+  public interface WindowedOutputBuilder<InputT>
+      extends Builders.WindowedOutput<WindowedOutputBuilder<InputT>>, OutputBuilder<InputT> {}
 
   /**
    * Last builder in a chain. It concludes this operators creation by calling {@link

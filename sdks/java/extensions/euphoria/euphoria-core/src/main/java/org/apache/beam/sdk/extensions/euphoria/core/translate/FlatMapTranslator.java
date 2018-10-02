@@ -29,6 +29,7 @@ import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
+import org.joda.time.Duration;
 import org.joda.time.Instant;
 
 /**
@@ -76,6 +77,12 @@ public class FlatMapTranslator<InputT, OutputT>
     public void processElement(ProcessContext ctx) {
       collector.setProcessContext(ctx);
       mapper.apply(ctx.element(), collector);
+    }
+
+    @Deprecated
+    @Override
+    public Duration getAllowedTimestampSkew() {
+      return Duration.millis(Long.MAX_VALUE);
     }
   }
 
