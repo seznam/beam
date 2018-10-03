@@ -19,7 +19,7 @@
 apply plugin: org.apache.beam.gradle.BeamModulePlugin
 applyJavaNature()
 
-description = "Apache Beam :: SDKs :: Java :: Extensions :: Euphoria Java 8 DSL :: Core"
+description = "Apache Beam :: SDKs :: Java :: Extensions :: Euphoria Java 8 DSL"
 
 ext {
     kryoVersion = '4.0.2'
@@ -31,7 +31,6 @@ dependencies {
     shadow library.java.guava
     testCompile library.java.mockito_core
     testCompile project(path: ":beam-sdks-java-extensions-kryo")
-    testCompile project(path: ':beam-sdks-java-extensions-euphoria-testing')
     testCompile library.java.slf4j_api
     testCompile library.java.hamcrest_core
     testCompile library.java.hamcrest_library
