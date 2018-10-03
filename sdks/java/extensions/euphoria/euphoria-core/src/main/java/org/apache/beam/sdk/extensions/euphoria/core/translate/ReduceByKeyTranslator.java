@@ -86,7 +86,11 @@ public class ReduceByKeyTranslator<InputT, KeyT, ValueT, OutputT>
               Combine.perKey(asCombiner(reducer, accumulators, operator.getName().orElse(null))));
       @SuppressWarnings("unchecked")
       final PCollection<KV<KeyT, OutputT>> casted = (PCollection) combined;
-      return casted;
+      return casted.setTypeDescriptor(
+          operator
+              .getOutputType()
+              .orElseThrow(
+                  () -> new IllegalStateException("Unable to infer output type descriptor.")));
     }
 
     return extracted
