@@ -29,6 +29,7 @@ import org.apache.beam.sdk.coders.CannotProvideCoderException;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.CoderProvider;
 import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.values.TypeDescriptor;
 
 /**
@@ -38,6 +39,37 @@ import org.apache.beam.sdk.values.TypeDescriptor;
 public class KryoCoderProvider extends CoderProvider {
 
   private static final TypeDescriptor<Object> OBJECT_TYPE = new TypeDescriptor<Object>() {};
+
+  /**
+   * Create a new {@link KryoCoderProvider} with default {@link KryoOptions}.
+   *
+   * @return A newly created {@link KryoCoderProvider}
+   */
+  public static KryoCoderProvider of() {
+    return of(PipelineOptionsFactory.create(), Collections.emptyList());
+  }
+
+  /**
+   * Create a new {@link KryoCoderProvider} with default {@link KryoOptions}.
+   *
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying
+   *     kryo instance
+   * @return A newly created {@link KryoCoderProvider}
+   */
+  public static KryoCoderProvider of(KryoRegistrar... registrars) {
+    return of(PipelineOptionsFactory.create(), Arrays.asList(registrars));
+  }
+
+  /**
+   * Create a new {@link KryoCoderProvider} with default {@link KryoOptions}.
+   *
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying
+   *     kryo instance
+   * @return A newly created {@link KryoCoderProvider}
+   */
+  public static KryoCoderProvider of(List<KryoRegistrar> registrars) {
+    return of(PipelineOptionsFactory.create(), registrars);
+  }
 
   /**
    * Create a new {@link KryoCoderProvider}.

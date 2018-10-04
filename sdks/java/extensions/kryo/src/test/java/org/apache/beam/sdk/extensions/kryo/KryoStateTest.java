@@ -24,18 +24,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import org.apache.beam.sdk.options.PipelineOptions;
-import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.junit.Test;
 
 /** A set of unit {@link KryoState} tests. */
 public class KryoStateTest {
 
-  private static final PipelineOptions OPTIONS = PipelineOptionsFactory.create();
-
   @Test
   public void testSameKryoAfterDeserialization() throws IOException, ClassNotFoundException {
-    final KryoCoder<?> coder = KryoCoder.of(OPTIONS, k -> k.register(TestClass.class));
+    final KryoCoder<?> coder = KryoCoder.of(k -> k.register(TestClass.class));
     final KryoState firstKryo = KryoState.get(coder);
 
     final ByteArrayOutputStream outStr = new ByteArrayOutputStream();

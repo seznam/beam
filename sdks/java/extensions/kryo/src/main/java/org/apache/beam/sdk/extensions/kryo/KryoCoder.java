@@ -31,9 +31,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
-import org.apache.beam.sdk.coders.AtomicCoder;
 import org.apache.beam.sdk.coders.CoderException;
+import org.apache.beam.sdk.coders.CustomCoder;
 import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
 
 /**
  * Coder using Kryo as (de)serialization mechanism. See {@link KryoCoderProvider} to get more
@@ -41,7 +42,44 @@ import org.apache.beam.sdk.options.PipelineOptions;
  *
  * @param <T> type of element coder can handle
  */
-public class KryoCoder<T> extends AtomicCoder<T> {
+public class KryoCoder<T> extends CustomCoder<T> {
+
+  /**
+   * Create a new {@link KryoCoder} with default {@link KryoOptions}.
+   *
+   * @param <T> type of element this class should decode/encode {@link Kryo} instance used by
+   *     returned {@link KryoCoder}
+   * @return Newly created a {@link KryoCoder}
+   */
+  public static <T> KryoCoder<T> of() {
+    return of(PipelineOptionsFactory.create(), Collections.emptyList());
+  }
+
+  /**
+   * Create a new {@link KryoCoder} with default {@link KryoOptions}.
+   *
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying
+   *     kryo instance
+   * @param <T> type of element this class should decode/encode {@link Kryo} instance used by
+   *     returned {@link KryoCoder}
+   * @return Newly created a {@link KryoCoder}
+   */
+  public static <T> KryoCoder<T> of(KryoRegistrar... registrars) {
+    return of(PipelineOptionsFactory.create(), registrars);
+  }
+
+  /**
+   * Create a new {@link KryoCoder} with default {@link KryoOptions}.
+   *
+   * @param registrars {@link KryoRegistrar}s which are used to register classes with underlying
+   *     kryo instance
+   * @param <T> type of element this class should decode/encode {@link Kryo} instance used by
+   *     returned {@link KryoCoder}
+   * @return Newly created a {@link KryoCoder}
+   */
+  public static <T> KryoCoder<T> of(List<KryoRegistrar> registrars) {
+    return of(PipelineOptionsFactory.create(), registrars);
+  }
 
   /**
    * Create a new {@link KryoCoder}.
@@ -190,6 +228,11 @@ public class KryoCoder<T> extends AtomicCoder<T> {
     }
   }
 
+  @Override
+  public void verifyDeterministic() throws NonDeterministicException {
+    // noop
+  }
+
   /**
    * Create a new {@link KryoCoder} instance with the user provided registrar.
    *
@@ -227,5 +270,18 @@ public class KryoCoder<T> extends AtomicCoder<T> {
    */
   List<KryoRegistrar> getRegistrars() {
     return registrars;
+  }
+
+  @Override
+  public int hashCode() {
+    return instanceId.hashCode();
+  }
+
+  @Override
+  public boolean equals(Object other) {
+    if (other != null && getClass().equals(other.getClass())) {
+      return instanceId.equals(((KryoCoder) other).instanceId);
+    }
+    return false;
   }
 }

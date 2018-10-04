@@ -92,8 +92,8 @@ public class KryoCoderProviderTest {
     provider.coderFor(TypeDescriptors.strings(), Collections.emptyList());
   }
 
-  private <T> void assertProviderReturnsKryoCoderForClass(KryoCoderProvider provider, Class<T> type)
-      throws CannotProvideCoderException {
+  private static <T> void assertProviderReturnsKryoCoderForClass(
+      KryoCoderProvider provider, Class<T> type) throws CannotProvideCoderException {
     assertTrue(provider.getCoder().getRegistrars().size() > 0);
     final Coder<T> coderToAssert =
         provider.coderFor(TypeDescriptor.of(type), Collections.emptyList());
