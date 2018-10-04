@@ -21,15 +21,17 @@ import org.apache.beam.sdk.extensions.euphoria.core.client.operator.Union;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
+import org.apache.beam.sdk.values.TypeDescriptor;
 
 /** Euphoria to Beam translation of {@link Union} operator. */
 class UnionTranslator<InputT> implements OperatorTranslator<InputT, InputT, Union<InputT>> {
 
   @Override
   public PCollection<InputT> translate(Union<InputT> operator, PCollectionList<InputT> inputs) {
+    final TypeDescriptor<InputT> outputType = operator.getOutputType().orElse(null);
     return operator
         .getName()
-        .map(name -> inputs.apply(name, Flatten.pCollections()))
-        .orElseGet(() -> inputs.apply(Flatten.pCollections()));
+        .map(name -> inputs.apply(name, Flatten.pCollections()).setTypeDescriptor(outputType))
+        .orElseGet(() -> inputs.apply(Flatten.pCollections()).setTypeDescriptor(outputType));
   }
 }

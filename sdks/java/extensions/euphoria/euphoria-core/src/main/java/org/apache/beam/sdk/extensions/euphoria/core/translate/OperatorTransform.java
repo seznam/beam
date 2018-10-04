@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.extensions.euphoria.core.translate;
 
+import com.google.common.base.Preconditions;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -51,6 +52,8 @@ public class OperatorTransform<InputT, OutputT, OperatorT extends Operator<Outpu
           inputList.apply(
               operator.getName().orElseGet(() -> operator.getClass().getName()),
               new OperatorTransform<>(operator, maybeTranslator.get()));
+      Preconditions.checkState(
+          output.getTypeDescriptor() != null, "Translator should always return typed PCollection.");
       return Dataset.of(output, operator);
     }
 
