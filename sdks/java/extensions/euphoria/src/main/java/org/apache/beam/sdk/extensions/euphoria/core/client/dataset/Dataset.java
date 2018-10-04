@@ -23,6 +23,7 @@ import javax.annotation.Nullable;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.extensions.euphoria.core.annotation.audience.Audience;
 import org.apache.beam.sdk.extensions.euphoria.core.client.operator.base.Operator;
+import org.apache.beam.sdk.extensions.euphoria.core.client.type.TypeAwares;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PInput;
@@ -52,6 +53,9 @@ public class Dataset<T> implements PValue {
   private Dataset(PCollection<T> pCollection, @Nullable Operator producer) {
     this.pCollection = pCollection;
     this.producer = producer;
+    if(pCollection.getTypeDescriptor() == null){
+      pCollection.setTypeDescriptor(TypeAwares.orObjects(Optional.empty()));
+    }
   }
 
   @Override
