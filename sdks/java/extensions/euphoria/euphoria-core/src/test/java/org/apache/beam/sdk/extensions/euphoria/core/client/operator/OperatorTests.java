@@ -61,7 +61,7 @@ public class OperatorTests {
     final TestPipeline testPipeline = TestPipeline.fromOptions(pipelineOptions);
     testPipeline
         .getCoderRegistry()
-        .registerCoderForClass(Object.class, KryoCoder.withoutClassRegistration());
+        .registerCoderForClass(Object.class, KryoCoder.of(pipelineOptions));
     return testPipeline;
   }
 

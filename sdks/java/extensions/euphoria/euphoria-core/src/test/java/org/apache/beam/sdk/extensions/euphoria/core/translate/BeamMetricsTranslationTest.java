@@ -52,7 +52,7 @@ public class BeamMetricsTranslationTest {
   public void setup() {
     testPipeline
         .getCoderRegistry()
-        .registerCoderForClass(Object.class, KryoCoder.withoutClassRegistration());
+        .registerCoderForClass(Object.class, KryoCoder.of(testPipeline.getOptions()));
   }
 
   /**

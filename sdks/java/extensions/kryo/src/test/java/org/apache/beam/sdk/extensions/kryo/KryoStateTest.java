@@ -17,41 +17,35 @@
  */
 package org.apache.beam.sdk.extensions.kryo;
 
-import com.esotericsoftware.kryo.Kryo;
+import static org.junit.Assert.assertSame;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import org.junit.Assert;
 import org.junit.Test;
 
-/** A set of unit {@link KryoFactory} tests. */
-public class KryoFactoryTest {
+/** A set of unit {@link KryoState} tests. */
+public class KryoStateTest {
 
   @Test
-  public void testGiveTheSameKrioAfterKryoRegistrarDeserialized()
-      throws IOException, ClassNotFoundException {
+  public void testSameKryoAfterDeserialization() throws IOException, ClassNotFoundException {
+    final KryoCoder<?> coder = KryoCoder.of(k -> k.register(TestClass.class));
+    final KryoState firstKryo = KryoState.get(coder);
 
-    IdentifiedRegistrar registrar = IdentifiedRegistrar.of((k) -> k.register(TestClass.class));
-
-    Kryo firstKryo = KryoFactory.getOrCreateKryo(registrar);
-
-    ByteArrayOutputStream outStr = new ByteArrayOutputStream();
-    ObjectOutputStream oss = new ObjectOutputStream(outStr);
-
-    oss.writeObject(registrar);
+    final ByteArrayOutputStream outStr = new ByteArrayOutputStream();
+    final ObjectOutputStream oss = new ObjectOutputStream(outStr);
+    oss.writeObject(coder);
     oss.flush();
     oss.close();
 
-    ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(outStr.toByteArray()));
-
+    final ObjectInputStream ois =
+        new ObjectInputStream(new ByteArrayInputStream(outStr.toByteArray()));
     @SuppressWarnings("unchecked")
-    IdentifiedRegistrar deserializedRegistrar = (IdentifiedRegistrar) ois.readObject();
-
-    Kryo secondKryo = KryoFactory.getOrCreateKryo(deserializedRegistrar);
-
-    Assert.assertSame(firstKryo, secondKryo);
+    final KryoCoder<?> deserializedCoder = (KryoCoder) ois.readObject();
+    final KryoState secondKryo = KryoState.get(deserializedCoder);
+    assertSame(firstKryo, secondKryo);
   }
 
   private static class TestClass {}

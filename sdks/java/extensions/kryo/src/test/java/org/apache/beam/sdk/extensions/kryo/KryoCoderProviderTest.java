@@ -17,12 +17,16 @@
  */
 package org.apache.beam.sdk.extensions.kryo;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
 import java.util.Collections;
 import org.apache.beam.sdk.coders.CannotProvideCoderException;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.values.TypeDescriptor;
-import org.junit.Assert;
+import org.apache.beam.sdk.values.TypeDescriptors;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -33,75 +37,70 @@ public class KryoCoderProviderTest {
 
   @Test
   public void testBuilding() {
-    KryoCoderProvider provider = KryoCoderProvider.of((kryo) -> {}).build();
-    Assert.assertNotNull(provider);
+    KryoCoderProvider provider = KryoCoderProvider.of(pipeline.getOptions());
+    assertNotNull(provider);
   }
 
   @Test
   public void testBuildingAndRegister() {
-    KryoCoderProvider.of((kryo) -> {}).buildAndRegister(pipeline);
+    KryoCoderProvider.of(pipeline.getOptions()).registerTo(pipeline);
   }
 
   @Test
   public void testItProvidesCodersToRegisteredClasses() throws CannotProvideCoderException {
-    KryoCoderProvider provider =
+    final KryoCoderProvider provider =
         KryoCoderProvider.of(
-                (kryo) -> {
-                  kryo.register(FirstTestClass.class);
-                  kryo.register(SecondTestClass.class);
-                  kryo.register(ThirdTestClass.class);
-                })
-            .build();
-
+            pipeline.getOptions(),
+            kryo -> {
+              kryo.register(FirstTestClass.class);
+              kryo.register(SecondTestClass.class);
+              kryo.register(ThirdTestClass.class);
+            });
     assertProviderReturnsKryoCoderForClass(provider, FirstTestClass.class);
     assertProviderReturnsKryoCoderForClass(provider, SecondTestClass.class);
     assertProviderReturnsKryoCoderForClass(provider, ThirdTestClass.class);
   }
 
   @Test(expected = CannotProvideCoderException.class)
-  public void testDoNotProvideCOderForUnregisteredClasses() throws CannotProvideCoderException {
-    KryoCoderProvider provider =
+  public void testDoNotProvideCoderForUnregisteredClasses() throws CannotProvideCoderException {
+    final KryoCoderProvider provider =
         KryoCoderProvider.of(
-                (kryo) -> {
-                  kryo.register(FirstTestClass.class);
-                  kryo.register(SecondTestClass.class);
-                  kryo.register(ThirdTestClass.class);
-                })
-            .build();
-
+            pipeline.getOptions(),
+            kryo -> {
+              kryo.register(FirstTestClass.class);
+              kryo.register(SecondTestClass.class);
+              kryo.register(ThirdTestClass.class);
+            });
     provider.coderFor(TypeDescriptor.of(NeverRegisteredClass.class), Collections.emptyList());
   }
 
   @Test
   public void testProviderRegisteredToPipeline() throws CannotProvideCoderException {
-    KryoCoderProvider.of(
-            (kryo) -> {
-              kryo.register(FirstTestClass.class);
-            })
-        .buildAndRegister(pipeline);
-
-    Coder<FirstTestClass> coderToAssert =
+    KryoCoderProvider.of(pipeline.getOptions(), kryo -> kryo.register(FirstTestClass.class))
+        .registerTo(pipeline);
+    final Coder<FirstTestClass> coderToAssert =
         pipeline.getCoderRegistry().getCoder(FirstTestClass.class);
-
-    Assert.assertNotNull(coderToAssert);
-    Assert.assertTrue(coderToAssert instanceof KryoCoder);
-    KryoCoder<FirstTestClass> casted = (KryoCoder<FirstTestClass>) coderToAssert;
-    IdentifiedRegistrar coderRegistrar = casted.getRegistrar();
-    Assert.assertNotNull(coderRegistrar);
+    assertNotNull(coderToAssert);
+    assertTrue(coderToAssert instanceof KryoCoder);
+    final KryoCoder<FirstTestClass> casted = (KryoCoder<FirstTestClass>) coderToAssert;
+    assertEquals(1, casted.getRegistrars().size());
   }
 
-  private <T> void assertProviderReturnsKryoCoderForClass(KryoCoderProvider provider, Class<T> type)
-      throws CannotProvideCoderException {
-    IdentifiedRegistrar providerRegistrar = provider.getKryoRegistrar();
-    Assert.assertNotNull(providerRegistrar);
-    Coder<T> coderToAssert = provider.coderFor(TypeDescriptor.of(type), Collections.emptyList());
+  @Test(expected = CannotProvideCoderException.class)
+  public void testPrimitiveClass() throws CannotProvideCoderException {
+    final KryoCoderProvider provider = KryoCoderProvider.of(pipeline.getOptions());
+    provider.coderFor(TypeDescriptors.strings(), Collections.emptyList());
+  }
 
-    Assert.assertNotNull(coderToAssert);
-    Assert.assertTrue(coderToAssert instanceof KryoCoder);
-    KryoCoder<T> casted = (KryoCoder<T>) coderToAssert;
-    IdentifiedRegistrar coderRegistrar = casted.getRegistrar();
-    Assert.assertNotNull(coderRegistrar);
-    Assert.assertEquals(providerRegistrar.getId(), coderRegistrar.getId());
+  private static <T> void assertProviderReturnsKryoCoderForClass(
+      KryoCoderProvider provider, Class<T> type) throws CannotProvideCoderException {
+    assertTrue(provider.getCoder().getRegistrars().size() > 0);
+    final Coder<T> coderToAssert =
+        provider.coderFor(TypeDescriptor.of(type), Collections.emptyList());
+    assertNotNull(coderToAssert);
+    assertTrue(coderToAssert instanceof KryoCoder);
+    final KryoCoder<T> casted = (KryoCoder<T>) coderToAssert;
+    assertEquals(provider.getCoder().getInstanceId(), casted.getInstanceId());
   }
 
   private static class FirstTestClass {}

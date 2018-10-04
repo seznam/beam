@@ -41,6 +41,7 @@ import org.apache.beam.sdk.extensions.euphoria.core.client.util.Fold;
 import org.apache.beam.sdk.extensions.euphoria.core.client.util.Sums;
 import org.apache.beam.sdk.extensions.euphoria.core.testkit.accumulators.SnapshotProvider;
 import org.apache.beam.sdk.extensions.kryo.KryoCoder;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.windowing.AfterWatermark;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.FixedWindows;
@@ -652,7 +653,7 @@ public class ReduceByKeyTest extends AbstractOperatorTest {
 
     @Override
     public Coder<CountWindow> windowCoder() {
-      return KryoCoder.withoutClassRegistration();
+      return KryoCoder.of(PipelineOptionsFactory.create());
     }
 
     @Override
@@ -764,7 +765,7 @@ public class ReduceByKeyTest extends AbstractOperatorTest {
 
     @Override
     public Coder<UniqueWindow> windowCoder() {
-      return KryoCoder.withoutClassRegistration();
+      return KryoCoder.of(PipelineOptionsFactory.create());
     }
 
     @Override
