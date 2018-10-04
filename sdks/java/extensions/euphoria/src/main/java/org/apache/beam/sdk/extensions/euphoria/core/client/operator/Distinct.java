@@ -291,7 +291,7 @@ public class Distinct<InputT, OutputT> extends ShuffleOperator<InputT, OutputT, 
                                       "Unable to resolve windowing for Distinct expansion.")));
                 })
             .output();
-    return MapElements.named("extract-keys")
+    return MapElements.named(getName().orElse("") + "::extract-keys")
         .of(distinct)
         .using(KV::getKey, getKeyType().orElse(null))
         .output();

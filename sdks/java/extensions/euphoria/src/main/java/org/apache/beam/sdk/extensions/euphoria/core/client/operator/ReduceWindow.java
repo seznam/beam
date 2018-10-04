@@ -423,7 +423,7 @@ public class ReduceWindow<InputT, ValueT, OutputT> extends ShuffleOperator<Input
   @SuppressWarnings("unchecked")
   public Dataset<OutputT> expand(List<Dataset<InputT>> inputs) {
     final ReduceByKey.ReduceByBuilder<Byte, ValueT> reduceBy =
-        ReduceByKey.named(getName().orElse(null))
+        ReduceByKey.named(getName().orElse("") + "::reduce-by")
             .of(Iterables.getOnlyElement(inputs))
             .keyBy(e -> B_ZERO)
             .valueBy(valueExtractor, valueType);

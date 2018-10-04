@@ -19,6 +19,7 @@ package org.apache.beam.sdk.extensions.euphoria.core.translate;
 
 import static java.util.Objects.requireNonNull;
 
+import java.util.Objects;
 import org.apache.beam.sdk.extensions.euphoria.core.client.functional.UnaryFunction;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -28,7 +29,7 @@ import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.apache.beam.sdk.values.TypeDescriptors;
 
-/** Shared utility methods among operator translators. */
+/** Key extracting utility transformation shared among operator translators. */
 class ExtractKey<KeyT, ValueT>
     extends PTransform<PCollection<ValueT>, PCollection<KV<KeyT, ValueT>>> {
 
@@ -59,6 +60,7 @@ class ExtractKey<KeyT, ValueT>
 
   @Override
   public PCollection<KV<KeyT, ValueT>> expand(PCollection<ValueT> input) {
+    Objects.requireNonNull(input.getTypeDescriptor());
     return input
         .apply(ParDo.of(new ExtractKeyFn<>(keyExtractor)))
         .setTypeDescriptor(TypeDescriptors.kvs(keyType, input.getTypeDescriptor()));
