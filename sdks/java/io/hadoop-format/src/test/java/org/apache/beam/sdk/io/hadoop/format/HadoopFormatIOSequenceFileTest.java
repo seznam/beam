@@ -15,7 +15,7 @@ import org.apache.beam.sdk.testing.TestStream;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.windowing.FixedWindows;
 import org.apache.beam.sdk.transforms.windowing.Window;
 import org.apache.beam.sdk.values.KV;
@@ -57,22 +57,21 @@ public class HadoopFormatIOSequenceFileTest {
 
   private static final List<String> ON_TIME_EVENTS = SENTENCES.subList(0, 4);
   private static final List<String> LATE_EVENTS = SENTENCES.subList(4, 6);
-  public static final Duration WINDOW_DURATION = Duration.standardSeconds(30);
+  public static final Duration WINDOW_DURATION = Duration.standardMinutes(1);
+  public static final SerializableFunction<KV<String, Long>, KV<Text, LongWritable>>
+      KV_STR_INT_2_TXT_LONGWRITABLE =
+          (KV<String, Long> element) ->
+              KV.of(new Text(element.getKey()), new LongWritable(element.getValue()));
 
   private static Map<String, Long> computeWordCounts(List<String> sentences) {
     return sentences
         .stream()
         .flatMap(s -> Stream.of(s.split("\\W+")))
         .map(String::toLowerCase)
-        .collect(Collectors.toMap(Function.identity(), s -> Long.valueOf(1L), Long::sum));
+        .collect(Collectors.toMap(Function.identity(), s -> 1L, Long::sum));
   }
 
-  @Rule
-  public TemporaryFolder tmpFolder =
-      new TemporaryFolder() {
-        @Override
-        protected void after() {}
-      };
+  @Rule public TemporaryFolder tmpFolder = new TemporaryFolder();
 
   @Rule public TestPipeline pipeline = TestPipeline.create();
 
@@ -89,15 +88,39 @@ public class HadoopFormatIOSequenceFileTest {
             outputDir,
             REDUCERS_COUNT);
 
+    executeBatchTest(HadoopFormatIO.<Text, LongWritable>write().withConfiguration(conf), outputDir);
+  }
+
+  @Test
+  public void batchTestWithoutPartitioner() {
+    String outputDir = getOutputDirPath();
+
+    Configuration conf =
+        createWriteConf(
+            SequenceFileOutputFormat.class,
+            Text.class,
+            LongWritable.class,
+            outputDir,
+            REDUCERS_COUNT);
+
+    executeBatchTest(
+        HadoopFormatIO.<Text, LongWritable>write().withConfigurationWithoutPartitioning(conf),
+        outputDir);
+  }
+
+  private void executeBatchTest(HadoopFormatIO.Write<Text, LongWritable> write, String outputDir) {
+
     pipeline
         .apply(Create.of(SENTENCES))
         .apply(ParDo.of(new ConvertToLowerCaseFn()))
         .apply(new WordCount.CountWords())
-        .apply("ConvertToHadoopFormat", ParDo.of(new ConvertToHadoopFormatFn()))
+        .apply(
+            "ConvertToHadoopFormat",
+            ParDo.of(new ConvertToHadoopFormatFn<>(KV_STR_INT_2_TXT_LONGWRITABLE)))
         .setTypeDescriptor(
             TypeDescriptors.kvs(
                 new TypeDescriptor<Text>() {}, new TypeDescriptor<LongWritable>() {}))
-        .apply(HadoopFormatIO.<Text, LongWritable>write().withConfiguration(conf));
+        .apply(write);
 
     pipeline.run().waitUntilFinish();
 
@@ -191,10 +214,16 @@ public class HadoopFormatIOSequenceFileTest {
         .apply(Window.into(FixedWindows.of(WINDOW_DURATION)))
         .apply(ParDo.of(new ConvertToLowerCaseFn()))
         .apply(new WordCount.CountWords())
-        .apply("ConvertToHadoopFormat", ParDo.of(new ConvertToHadoopFormatFn()))
+        .apply(
+            "ConvertToHadoopFormat",
+            ParDo.of(new ConvertToHadoopFormatFn<>(KV_STR_INT_2_TXT_LONGWRITABLE)))
+        .setTypeDescriptor(
+            TypeDescriptors.kvs(
+                new TypeDescriptor<Text>() {}, new TypeDescriptor<LongWritable>() {}))
         .apply(
             HadoopFormatIO.<Text, LongWritable>write()
-                .withConfigurationTransformation(ParDo.of(new ConfigProvider(outputDirPath))));
+                .withConfigurationTransformation(
+                    ParDo.of(new ConfigProvider<>(outputDirPath, Text.class, LongWritable.class))));
 
     pipeline.run().waitUntilFinish();
 
@@ -204,71 +233,28 @@ public class HadoopFormatIOSequenceFileTest {
         values.entrySet(), equalTo(computeWordCounts(ON_TIME_EVENTS).entrySet()));
   }
 
-  //  @Test
-  //  public void streamTestWithEarlyFiring() {
-  //
-  //    TestStream<Integer> intStream =
-  //        TestStream.create(VarIntCoder.of())
-  //            .advanceWatermarkTo(START_TIME)
-  //            .addElements(event(1, 2L), event(2, 2L))
-  //            .advanceWatermarkTo(START_TIME.plus(Duration.standardSeconds(10L)))
-  //            .addElements(event(3, 18L), event(4, 28L))
-  //            .advanceWatermarkTo(START_TIME.plus(Duration.standardSeconds(250L)))
-  //            .advanceWatermarkToInfinity();
-  //
-  //    String outputDirPath = getOutputDirPath();
-  //
-  //    TypeDescriptor<Integer> intTypeDesc = new TypeDescriptor<Integer>() {};
-  //
-  //    MapElements<Integer, KV<Integer, Integer>> mapFunc =
-  //        MapElements.via(
-  //            SimpleFunction.fromSerializableFunctionWithOutputType(
-  //                (Integer i) -> KV.of(1, i), TypeDescriptors.kvs(intTypeDesc, intTypeDesc)));
-  //
-  //    pipeline
-  //        .apply(intStream)
-  //        .apply(
-  //            Window.<Integer>into(FixedWindows.of(WINDOW_DURATION))
-  //                .triggering(AfterPane.elementCountAtLeast(1))
-  //                .withAllowedLateness(Duration.standardSeconds(100))
-  //                .accumulatingFiredPanes())
-  //        .apply(mapFunc)
-  //        .apply(GroupByKey.create())
-  //        .apply(ParDo.of(new ElementLogger()));
-  //    //        .apply("ConvertToHadoopFormat", ParDo.of(new ConvertToHadoopFormatFn()))
-  //    //        .apply(
-  //    //            HadoopFormatIO.<Text, LongWritable>write()
-  //    //                .withConfigurationTransformation(ParDo.of(new
-  //    // ConfigProvider(outputDirPath))));
-  //
-  //    pipeline.run().waitUntilFinish();
-  //
-  //    Map<String, Long> values = loadWrittenDataAsMap(outputDirPath);
-  //
-  //    MatcherAssert.assertThat(
-  //        values.entrySet(), equalTo(computeWordCounts(ON_TIME_EVENTS).entrySet()));
-  //  }
-
   private Map<String, Long> loadWrittenDataAsMap(String outputDirPath) {
     return loadWrittenData(outputDirPath)
         .stream()
         .collect(Collectors.toMap(kv -> kv.getKey().toString(), kv -> kv.getValue().get()));
   }
 
-  private <T> TimestampedValue<T> event(T eventValue, Long dur) {
+  private <T> TimestampedValue<T> event(T eventValue, Long timestamp) {
 
-    return TimestampedValue.of(eventValue, START_TIME.plus(new Duration(dur)));
+    return TimestampedValue.of(eventValue, START_TIME.plus(new Duration(timestamp)));
   }
 
-  private static class ConvertToHadoopFormatFn
-      extends DoFn<KV<String, Long>, KV<Text, LongWritable>> {
+  private static class ConvertToHadoopFormatFn<InputT, OutputT> extends DoFn<InputT, OutputT> {
+
+    private SerializableFunction<InputT, OutputT> transformFn;
+
+    ConvertToHadoopFormatFn(SerializableFunction<InputT, OutputT> transformFn) {
+      this.transformFn = transformFn;
+    }
 
     @DoFn.ProcessElement
-    public void processElement(
-        @DoFn.Element KV<String, Long> element,
-        OutputReceiver<KV<Text, LongWritable>> outReceiver) {
-
-      outReceiver.output(KV.of(new Text(element.getKey()), new LongWritable(element.getValue())));
+    public void processElement(@DoFn.Element InputT element, OutputReceiver<OutputT> outReceiver) {
+      outReceiver.output(transformFn.apply(element));
     }
   }
 
@@ -277,14 +263,23 @@ public class HadoopFormatIOSequenceFileTest {
     public void processElement(@DoFn.Element String element, OutputReceiver<String> receiver) {
       receiver.output(element.toLowerCase());
     }
+
+    @Override
+    public TypeDescriptor<String> getOutputTypeDescriptor() {
+      return super.getOutputTypeDescriptor();
+    }
   }
 
-  private static class ConfigProvider extends DoFn<KV<Text, LongWritable>, Configuration> {
+  private static class ConfigProvider<KeyT, ValueT> extends DoFn<KV<KeyT, ValueT>, Configuration> {
 
     private String outputDirPath;
+    private Class<?> keyClass;
+    private Class<?> valueClass;
 
-    public ConfigProvider(String outputDirPath) {
+    ConfigProvider(String outputDirPath, Class<?> keyClass, Class<?> valueClass) {
       this.outputDirPath = outputDirPath;
+      this.keyClass = keyClass;
+      this.valueClass = valueClass;
     }
 
     @DoFn.ProcessElement
@@ -292,35 +287,7 @@ public class HadoopFormatIOSequenceFileTest {
 
       receiver.output(
           createWriteConf(
-              SequenceFileOutputFormat.class,
-              Text.class,
-              LongWritable.class,
-              outputDirPath,
-              REDUCERS_COUNT));
-    }
-  }
-
-  private static class ElementLogger<KeyT, ValueT>
-      extends DoFn<KV<KeyT, ValueT>, KV<KeyT, ValueT>> {
-
-    @DoFn.ProcessElement
-    public void processElement(
-        @DoFn.Element KV<KeyT, ValueT> element,
-        OutputReceiver<KV<KeyT, ValueT>> receiver,
-        DoFn<KV<KeyT, ValueT>, KV<KeyT, ValueT>>.ProcessContext context,
-        BoundedWindow window) {
-
-      System.out.println(
-          String.format(
-              "%4s element %20s in window with end in %s, pane id: %s, pane timing: %s %s",
-              Thread.currentThread().getId(),
-              element,
-              window.maxTimestamp(),
-              context.pane().getIndex(),
-              context.pane().getTiming(),
-              context.pane().toString()));
-
-      receiver.output(element);
+              SequenceFileOutputFormat.class, keyClass, valueClass, outputDirPath, REDUCERS_COUNT));
     }
   }
 }

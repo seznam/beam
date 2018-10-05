@@ -15,25 +15,58 @@
 package org.apache.beam.sdk.io.hadoop.format;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.Iterables;
-import java.io.*;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.AtomicCoder;
 import org.apache.beam.sdk.options.PipelineOptions;
-import org.apache.beam.sdk.transforms.*;
+import org.apache.beam.sdk.transforms.Combine;
+import org.apache.beam.sdk.transforms.CombineFnBase;
+import org.apache.beam.sdk.transforms.Create;
+import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.FlatMapElements;
+import org.apache.beam.sdk.transforms.GroupByKey;
+import org.apache.beam.sdk.transforms.PTransform;
+import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.SimpleFunction;
+import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
-import org.apache.beam.sdk.values.*;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionView;
+import org.apache.beam.sdk.values.PDone;
+import org.apache.beam.sdk.values.TypeDescriptor;
+import org.apache.beam.sdk.values.TypeDescriptors;
+import org.apache.beam.sdk.values.WindowingStrategy;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.mapreduce.*;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.mapreduce.JobID;
+import org.apache.hadoop.mapreduce.MRJobConfig;
+import org.apache.hadoop.mapreduce.OutputCommitter;
+import org.apache.hadoop.mapreduce.OutputFormat;
+import org.apache.hadoop.mapreduce.Partitioner;
+import org.apache.hadoop.mapreduce.RecordWriter;
+import org.apache.hadoop.mapreduce.TaskAttemptContext;
+import org.apache.hadoop.mapreduce.TaskID;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.task.JobContextImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,14 +142,15 @@ public class HadoopFormatIO {
   }
 
   /**
-   * Interface for client definition of so called {@link Configuration} "Map-Reduce" operation defined by methods {@link
-   * #getConfigTransform()} and {@link #getConfigCombineFn()}
+   * Interface for client definition of so called {@link Configuration} "Map-Reduce" operation
+   * defined by methods {@link #getConfigTransform()} and {@link #getConfigCombineFn()}
    *
    * <p>Client can define operations which will produce one particular configuration from the input
-   * data by this interface. Generated configuration will be then used during writing of data into one of
-   * the hadoop output formats.
+   * data by this interface. Generated configuration will be then used during writing of data into
+   * one of the hadoop output formats.
    *
-   * <p>This interface enables defining of special {@link Configuration} for every particular window.</p>
+   * <p>This interface enables defining of special {@link Configuration} for every particular
+   * window.
    *
    * @param <KeyT> Key type of writing data
    * @param <ValueT> Value type of writing data
@@ -132,7 +166,7 @@ public class HadoopFormatIO {
                     .orElseThrow(() -> new IllegalStateException("Any configuration found!")));
 
     /**
-     * "Map" function which should transform one {@link KV} pair into hadoop {@link Configuration}
+     * "Map" function which should transform one {@link KV} pair into hadoop {@link Configuration}.
      *
      * <p><b>Note:</b> Default implementation of {@link #getConfigCombineFn()} requires that from
      * {@link KV} pair will be produced at least one {@link Configuration}
@@ -145,7 +179,7 @@ public class HadoopFormatIO {
     /**
      * "Reduce" function which collects all {@link Configuration}s created via {@link
      * #getConfigTransform()} and returns only one particular configuration that will be used for
-     * storing of all {@link KV} pairs
+     * storing of all {@link KV} pairs.
      *
      * @see #DEFAULT_CONFIG_COMBINE_FN
      * @return Combine function
@@ -178,6 +212,43 @@ public class HadoopFormatIO {
     }
   }
 
+  private static class GroupDataByPartition<KeyT, ValueT>
+      extends PTransform<
+          PCollection<KV<KeyT, ValueT>>, PCollection<KV<Integer, KV<KeyT, ValueT>>>> {
+
+    private PCollectionView<Configuration> configView;
+
+    private GroupDataByPartition(PCollectionView<Configuration> configView) {
+      this.configView = configView;
+    }
+
+    @Override
+    public PCollection<KV<Integer, KV<KeyT, ValueT>>> expand(PCollection<KV<KeyT, ValueT>> input) {
+      return input
+          .apply(
+              "AssignTask",
+              ParDo.of(new AssignTaskFn<KeyT, ValueT>(configView)).withSideInputs(configView))
+          .setTypeDescriptor(
+              TypeDescriptors.kvs(TypeDescriptors.integers(), input.getTypeDescriptor()))
+          .apply("GroupByTaskId", GroupByKey.create())
+          .apply(
+              "FlattenGroupedTasks",
+              FlatMapElements
+                  .<KV<Integer, Iterable<KV<KeyT, ValueT>>>, KV<Integer, KV<KeyT, ValueT>>>via(
+                      new SimpleFunction<
+                          KV<Integer, Iterable<KV<KeyT, ValueT>>>,
+                          Iterable<KV<Integer, KV<KeyT, ValueT>>>>() {
+                        @Override
+                        public Iterable<KV<Integer, KV<KeyT, ValueT>>> apply(
+                            KV<Integer, Iterable<KV<KeyT, ValueT>>> input) {
+                          return StreamSupport.stream(input.getValue().spliterator(), false)
+                              .map(val -> KV.of(input.getKey(), val))
+                              .collect(Collectors.toList());
+                        }
+                      }));
+    }
+  }
+
   /**
    * A {@link PTransform} that writes to any data sink which implements Hadoop OutputFormat. For
    * e.g. Cassandra, Elasticsearch, HBase, Redis, Postgres, etc. See the class-level Javadoc on
@@ -197,12 +268,17 @@ public class HadoopFormatIO {
     @Nullable
     public abstract IConfigurationTransform<KeyT, ValueT> getConfigTransform();
 
+    public abstract boolean isWithPartitioning();
+
     @AutoValue.Builder
     abstract static class Builder<KeyT, ValueT> {
-      abstract Builder<KeyT, ValueT> setConfiguration(Configuration configuration);
 
-      abstract Builder<KeyT, ValueT> setConfigTransform(
+      public abstract Builder<KeyT, ValueT> setConfiguration(Configuration newConfiguration);
+
+      public abstract Builder<KeyT, ValueT> setConfigTransform(
           IConfigurationTransform<KeyT, ValueT> newConfigTransform);
+
+      public abstract Builder<KeyT, ValueT> setWithPartitioning(boolean newWithPartitioning);
 
       abstract Write<KeyT, ValueT> build();
 
@@ -218,14 +294,23 @@ public class HadoopFormatIO {
           throws IllegalArgumentException {
         checkArgument(Objects.nonNull(configuration), "Configuration can not be null");
 
-        return setConfiguration(new Configuration(configuration)).build();
+        return setConfiguration(new Configuration(configuration)).setWithPartitioning(true).build();
+      }
+
+      public Write<KeyT, ValueT> withConfigurationWithoutPartitioning(Configuration configuration)
+          throws IllegalArgumentException {
+        checkArgument(Objects.nonNull(configuration), "Configuration can not be null");
+
+        return setConfiguration(new Configuration(configuration))
+            .setWithPartitioning(false)
+            .build();
       }
 
       public Write<KeyT, ValueT> withConfigurationTransformation(
           PTransform<PCollection<? extends KV<KeyT, ValueT>>, PCollection<Configuration>>
               configurationTransformation) {
 
-        setConfigTransform(() -> configurationTransformation).build();
+        setConfigTransform(() -> configurationTransformation).setWithPartitioning(true).build();
 
         return setConfigTransform(new DefaultConfigurationTransform<>(configurationTransformation))
             .build();
@@ -233,7 +318,7 @@ public class HadoopFormatIO {
 
       public Write<KeyT, ValueT> withConfigurationTransformation(
           IConfigurationTransform<KeyT, ValueT> configurationTransformation) {
-        return setConfigTransform(configurationTransformation).build();
+        return setConfigTransform(configurationTransformation).setWithPartitioning(true).build();
       }
     }
 
@@ -294,14 +379,16 @@ public class HadoopFormatIO {
       TypeDescriptor<Iterable<Integer>> iterableIntType =
           TypeDescriptors.iterables(TypeDescriptors.integers());
 
-      return PDone.in(
-          input
-              .apply(
-                  "AssignTask",
-                  ParDo.of(new AssignTaskFn<KeyT, ValueT>(configView)).withSideInputs(configView))
-              .setTypeDescriptor(
-                  TypeDescriptors.kvs(TypeDescriptors.integers(), input.getTypeDescriptor()))
-              .apply("GroupByTaskId", GroupByKey.create())
+      PCollection<KV<Integer, KV<KeyT, ValueT>>> writeData =
+          isWithPartitioning()
+              ? input.apply("GroupDataByPartition", new GroupDataByPartition<>(configView))
+              : input.apply(
+                  "PrepareNonPartitionedTasksFn",
+                  ParDo.of(new PrepareNonPartitionedTasksFn<KeyT, ValueT>(configView))
+                      .withSideInputs(configView));
+
+      PCollection<Iterable<Integer>> collectedFinishedWrites =
+          writeData
               .apply(
                   "Write",
                   ParDo.of(new WriteFn<KeyT, ValueT>(configView)).withSideInputs(configView))
@@ -310,7 +397,16 @@ public class HadoopFormatIO {
                   "CollectWriteTasks",
                   Combine.globally(new IterableCombinerFn<>(TypeDescriptors.integers()))
                       .withoutDefaults())
-              .setTypeDescriptor(iterableIntType)
+              .setTypeDescriptor(iterableIntType);
+
+      if (!isWithPartitioning()) {
+        collectedFinishedWrites =
+            collectedFinishedWrites.apply(
+                ParDo.of(new FinishNonPartitionedTasksFn(configView)).withSideInputs(configView));
+      }
+
+      return PDone.in(
+          collectedFinishedWrites
               .apply(
                   "CommitWriteJob",
                   ParDo.of(new CommitJobFn<Integer>(configView)).withSideInputs(configView))
@@ -321,7 +417,7 @@ public class HadoopFormatIO {
      * Creates configuration view based on provided Configuration ({@link
      * Write.Builder#withConfiguration(Configuration)}) or based on input data and provided
      * transformation function ({@link
-     * Write.Builder#withConfigurationTransformation(IConfigurationTransform)}
+     * Write.Builder#withConfigurationTransformation(IConfigurationTransform)}.
      *
      * <p>Following operations are also done before configuration view creation:
      *
@@ -391,6 +487,10 @@ public class HadoopFormatIO {
 
       return config;
     }
+
+    public static <KeyT, ValueT> Builder<KeyT, ValueT> builder() {
+      return new AutoValue_HadoopFormatIO_Write.Builder<>();
+    }
   }
 
   /**
@@ -432,6 +532,7 @@ public class HadoopFormatIO {
     }
   }
 
+
   /**
    * Validates input data whether have correctly specified {@link TypeDescriptor}s of input data and
    * if the {@link TypeDescriptor}s match with output types set in the hadoop {@link Configuration}.
@@ -444,7 +545,7 @@ public class HadoopFormatIO {
     private TypeDescriptor<KV<KeyT, ValueT>> inputTypeDescriptor;
 
     /** @param inputTypeDescriptor Type descriptor of input data */
-    public InputValidatorFn(TypeDescriptor<KV<KeyT, ValueT>> inputTypeDescriptor) {
+    InputValidatorFn(TypeDescriptor<KV<KeyT, ValueT>> inputTypeDescriptor) {
       this.inputTypeDescriptor = inputTypeDescriptor;
     }
 
@@ -513,6 +614,10 @@ public class HadoopFormatIO {
 
     TaskAttemptContext getTaskAttemptContext() {
       return taskAttemptContext;
+    }
+
+    int getTaskId() {
+      return taskAttemptContext.getTaskAttemptID().getTaskID().getId();
     }
 
     private RecordWriter<KeyT, ValueT> initRecordWriter(
@@ -600,9 +705,14 @@ public class HadoopFormatIO {
 
       hadoopConf.set(MRJobConfig.ID, jobId.getJtIdentifier());
 
-      setupJob(jobId, hadoopConf);
+      if (c.pane().isFirst()) {
+        setupJob(jobId, hadoopConf);
+      }
 
-      receiver.output(new Configuration(hadoopConf));
+      // TODO delete
+      hadoopConf.set("AAAAAAAAAAAApane.index", String.valueOf(c.pane().getIndex()));
+
+      receiver.output(hadoopConf);
 
       LOGGER.info(
           "Job with id {} successfully configured from window with max timestamp {} and pane with index {}, is first: {}.",
@@ -613,17 +723,16 @@ public class HadoopFormatIO {
     }
 
     /**
-     * Setups the hadoop write job as running
+     * Setups the hadoop write job as running.
      *
      * @param jobId jobId
      * @param conf hadoop configuration
      */
     private void setupJob(JobID jobId, Configuration conf) {
       try {
-
-        // TODO handle windowing
         TaskAttemptContext setupTaskContext = HadoopUtils.createSetupTaskContext(conf, jobId);
         OutputFormat<?, ?> jobOutputFormat = HadoopUtils.createOutputFormatFromConfig(conf);
+
         jobOutputFormat.checkOutputSpecs(setupTaskContext);
         jobOutputFormat.getOutputCommitter(setupTaskContext).setupJob(setupTaskContext);
 
@@ -649,17 +758,18 @@ public class HadoopFormatIO {
     @ProcessElement
     public void processElement(ProcessContext c) {
 
-      Configuration config = c.sideInput(configView);
-      cleanupJob(config);
+      if (c.pane().isLast()) {
+        Configuration config = c.sideInput(configView);
+        cleanupJob(config);
+      }
     }
 
     /**
-     * Commits whole write job
+     * Commits whole write job.
      *
      * @param config hadoop config
      */
     private void cleanupJob(Configuration config) {
-      // TODO only for last pane of the window
       JobID jobID = HadoopUtils.getJobId(config);
       TaskAttemptContext cleanupTaskContext = HadoopUtils.createCleanupTaskContext(config, jobID);
       OutputFormat<?, ?> outputFormat = HadoopUtils.createOutputFormatFromConfig(config);
@@ -682,7 +792,7 @@ public class HadoopFormatIO {
   private static class AssignTaskFn<KeyT, ValueT>
       extends DoFn<KV<KeyT, ValueT>, KV<Integer, KV<KeyT, ValueT>>> {
 
-    /** Cache of created TaskIDs for given bundle */
+    /** Cache of created TaskIDs for given bundle. */
     private Map<Integer, TaskID> partitionToTaskContext = new HashMap<>();
 
     PCollectionView<Configuration> configView;
@@ -691,7 +801,7 @@ public class HadoopFormatIO {
     private JobID jobId;
 
     /**
-     * Needs configuration view of given window
+     * Needs configuration view of given window.
      *
      * @param configView configuration view
      */
@@ -699,7 +809,7 @@ public class HadoopFormatIO {
       this.configView = configView;
     }
 
-    /** Deletes cached fields used in previous bundle */
+    /** Deletes cached fields used in previous bundle. */
     @StartBundle
     public void startBundle() {
       partitioner = null;
@@ -774,62 +884,72 @@ public class HadoopFormatIO {
    * @param <KeyT> Type of key
    * @param <ValueT> Type of value
    */
-  private static class WriteFn<KeyT, ValueT>
-      extends DoFn<KV<Integer, Iterable<KV<KeyT, ValueT>>>, Integer> {
+  private static class WriteFn<KeyT, ValueT> extends DoFn<KV<Integer, KV<KeyT, ValueT>>, Integer> {
 
-    private Map<Integer, TaskContext<KeyT, ValueT>> taskIdContextMap;
+    private TaskContext<KeyT, ValueT> bundleTaskContext;
+    private Set<BoundedWindow> boundedWindowSet;
+
     private PCollectionView<Configuration> configView;
 
     WriteFn(PCollectionView<Configuration> configView) {
       this.configView = configView;
     }
 
-    /** Deletes cached map from previous bundle */
+    /** Deletes cached map from previous bundle. */
     @StartBundle
-    public void setup() {
-      taskIdContextMap = new HashMap<>();
+    public void startBundle() {
+      bundleTaskContext = null;
+      boundedWindowSet = new HashSet<>();
     }
 
     @ProcessElement
     public void processElement(
-        @Element KV<Integer, Iterable<KV<KeyT, ValueT>>> element, ProcessContext c, BoundedWindow b)
+        @Element KV<Integer, KV<KeyT, ValueT>> element, ProcessContext c, BoundedWindow b)
         throws IOException, InterruptedException {
 
       Configuration conf = c.sideInput(configView);
-
       Integer taskID = element.getKey();
 
-      TaskContext<KeyT, ValueT> taskContext;
-      if (c.pane().isFirst()) {
-        taskContext = setupTask(taskID, conf);
-      } else {
-        taskContext = getTask(taskID, conf);
+      if (bundleTaskContext == null) {
+        bundleTaskContext = setupTask(taskID, conf);
       }
 
-      write(element.getValue(), taskContext);
-      if (c.pane().isLast()) {
-        taskContext.getOutputCommitter().commitTask(taskContext.getTaskAttemptContext());
-        c.output(taskID);
+      write(element.getValue(), bundleTaskContext);
+
+      boundedWindowSet.add(b);
+    }
+
+    @FinishBundle
+    public void finishBundle(FinishBundleContext c) throws IOException, InterruptedException {
+      if (bundleTaskContext == null) {
+        return;
       }
+
+      bundleTaskContext.getRecordWriter().close(bundleTaskContext.getTaskAttemptContext());
+      bundleTaskContext.getOutputCommitter().commitTask(bundleTaskContext.getTaskAttemptContext());
+
+      boundedWindowSet.forEach(w -> c.output(bundleTaskContext.getTaskId(), w.maxTimestamp(), w));
+
+      LOGGER.info(
+          "Task with id {} of job {} was successfully committed!",
+          bundleTaskContext.getTaskId(),
+          bundleTaskContext.getTaskAttemptContext().getJobID().getJtIdentifier());
     }
 
     /**
-     * Writes all {@link KV} pairs for given {@link TaskID}
+     * Writes one {@link KV} pair for given {@link TaskID}.
      *
-     * @param writeKVs Iterable of pairs to write
+     * @param kv Iterable of pairs to write
      * @param taskContext taskContext
      * @throws IOException if write problems occurred
      * @throws InterruptedException if the write thread was interrupted
      */
-    private void write(Iterable<KV<KeyT, ValueT>> writeKVs, TaskContext<KeyT, ValueT> taskContext)
+    private void write(KV<KeyT, ValueT> kv, TaskContext<KeyT, ValueT> taskContext)
         throws IOException, InterruptedException {
 
-      // write and close
       RecordWriter<KeyT, ValueT> recordWriter = taskContext.getRecordWriter();
-      for (KV<KeyT, ValueT> kv : Objects.requireNonNull(writeKVs)) {
-        recordWriter.write(kv.getKey(), kv.getValue());
-      }
-      recordWriter.close(taskContext.getTaskAttemptContext());
+
+      recordWriter.write(kv.getKey(), kv.getValue());
     }
 
     /**
@@ -843,36 +963,123 @@ public class HadoopFormatIO {
     private TaskContext<KeyT, ValueT> setupTask(Integer taskId, Configuration conf)
         throws IOException {
 
-      checkArgument(
-          !taskIdContextMap.containsKey(taskId),
-          "Task with id %s of job %s was already set up!",
-          taskId,
-          HadoopUtils.getJobId(conf).getJtIdentifier());
-
       TaskContext<KeyT, ValueT> taskContext = new TaskContext<>(taskId, conf);
-      taskIdContextMap.put(taskId, taskContext);
 
       taskContext.getOutputCommitter().setupTask(taskContext.getTaskAttemptContext());
 
-      return taskContext;
-    }
-
-    /**
-     * Fetches already existing (and setup) task from the map. Existence of the {@link TaskContext}
-     * should be ensured during first pane key execution.
-     *
-     * @param taskID taskId of existing {@link TaskContext}
-     * @param conf hadoop configuration
-     * @return existing {@link TaskContext}
-     */
-    private TaskContext<KeyT, ValueT> getTask(Integer taskID, Configuration conf) {
-      checkArgument(
-          taskIdContextMap.containsKey(taskID),
-          "Unable to process write task with id %s of Job with id %s. Reason: Task was not properly set.",
-          taskID,
+      LOGGER.info(
+          "Task with id {} of job {} was successfully setup!",
+          taskId,
           HadoopUtils.getJobId(conf).getJtIdentifier());
 
-      return taskIdContextMap.get(taskID);
+      return taskContext;
+    }
+  }
+
+  private static class PrepareNonPartitionedTasksFn<KeyT, ValueT>
+      extends DoFn<KV<KeyT, ValueT>, KV<Integer, KV<KeyT, ValueT>>> {
+
+    private Integer taskId;
+    private PCollectionView<Configuration> configView;
+
+    private PrepareNonPartitionedTasksFn(PCollectionView<Configuration> configView) {
+      this.configView = configView;
+    }
+
+    @DoFn.StartBundle
+    public void startBundle() {
+      taskId = null;
+    }
+
+    @DoFn.ProcessElement
+    public void processElement(
+        @DoFn.Element KV<KeyT, ValueT> element,
+        OutputReceiver<KV<Integer, KV<KeyT, ValueT>>> output,
+        ProcessContext c) {
+
+      if (taskId == null) {
+        Configuration conf = c.sideInput(configView);
+        taskId = TaskLocks.registerRandomTaskLock(conf);
+      }
+
+      output.output(KV.of(taskId, element));
+    }
+  }
+
+  private static class FinishNonPartitionedTasksFn
+      extends DoFn<Iterable<Integer>, Iterable<Integer>> {
+
+    private PCollectionView<Configuration> configView;
+
+    private FinishNonPartitionedTasksFn(PCollectionView<Configuration> configView) {
+      this.configView = configView;
+    }
+
+    @ProcessElement
+    public void processElement(@Element Iterable<Integer> finishedTasks, ProcessContext c) {
+      Configuration conf = c.sideInput(configView);
+      TaskLocks.removeAllLocks(conf);
+      c.output(finishedTasks);
+    }
+  }
+
+  private static final class TaskLocks {
+
+    private static final String LOCKS_DIR_NAME = "locks/";
+
+    private static final Random RANDOM_GEN = new Random();
+
+    private TaskLocks() {}
+
+    static int registerRandomTaskLock(Configuration conf) {
+      try {
+        String basePath = conf.get(FileOutputFormat.OUTDIR);
+        FileSystem fileSystem = FileSystem.get(conf);
+
+        while (true) {
+
+          int taskIdCandidate = RANDOM_GEN.nextInt(Integer.MAX_VALUE);
+          Path path = new Path(basePath, LOCKS_DIR_NAME + taskIdCandidate);
+
+          try {
+            boolean newFile = fileSystem.createNewFile(path);
+
+            if (newFile) {
+              LOGGER.info("Lock for task with id {} was successfully created.", taskIdCandidate);
+
+              return taskIdCandidate;
+            } else {
+              occupiedLog(taskIdCandidate);
+            }
+
+          } catch (IOException e) {
+            occupiedLog(taskIdCandidate);
+          }
+        }
+
+      } catch (IOException e) {
+        throw new RuntimeException("Problem occurred during registering task lock.", e);
+      }
+    }
+
+    private static void occupiedLog(int taskIdCandidate) {
+      LOGGER.info(
+          "Lock for task with id {} was already occupied. Will try to generate new one.",
+          taskIdCandidate);
+    }
+
+    static void removeAllLocks(Configuration conf) {
+      Path path = new Path(conf.get(FileOutputFormat.OUTDIR), LOCKS_DIR_NAME);
+      try {
+        if (FileSystem.get(conf).delete(path, true)) {
+          LOGGER.info("Delete of lock directory was successful");
+        } else {
+          LOGGER.warn("Delete of lock directory was unsuccessful");
+        }
+
+      } catch (IOException e) {
+        LOGGER.warn("Delete of lock directory was unsuccessful", e);
+      }
     }
   }
 }
