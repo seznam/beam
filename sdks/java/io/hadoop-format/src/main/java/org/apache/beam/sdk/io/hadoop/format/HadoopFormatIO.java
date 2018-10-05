@@ -86,11 +86,20 @@ import org.slf4j.LoggerFactory;
  * <ul>
  *   <li>{@code mapreduce.job.outputformat.class}: The {@link OutputFormat} class used to connect to
  *       your data sink of choice.
- *   <li>{@code mapreduce.job.outputformat.key.class}: The key class passed to the {@link
+ *   <li>{@code mapreduce.job.output.key.class}: The key class passed to the {@link OutputFormat} in
+ *       {@code mapreduce.job.outputformat.class}.
+ *   <li>{@code mapreduce.job.output.value.class}: The value class passed to the {@link
  *       OutputFormat} in {@code mapreduce.job.outputformat.class}.
- *   <li>{@code mapreduce.job.outputformat.value.class}: The value class passed to the {@link
- *       OutputFormat} in {@code mapreduce.job.outputformat.class}.
+ *   <li>{@code mapreduce.job.reduces}: Number of reduce tasks. Value is equal to number of write
+ *       tasks which will be genarated. This property is not required for {@link
+ *       Write.Builder#withConfigurationWithoutPartitioning(Configuration)} write.
+ *   <li>{@code mapreduce.job.partitioner.class}: Hadoop partitioner class which will be used for
+ *       distributing of records among partitions. This property is not required for {@link *
+ *       Write.Builder#withConfigurationWithoutPartitioning(Configuration)} write.
  * </ul>
+ *
+ * <b>Note:</b> All mentioned values have appropriate constants. E.g.: {@link
+ * #OUTPUT_FORMAT_CLASS_ATTR}.
  *
  * <p>For example:
  *
@@ -99,18 +108,19 @@ import org.slf4j.LoggerFactory;
  * // Set Hadoop OutputFormat, key and value class in configuration
  * myHadoopConfiguration.setClass(&quot;mapreduce.job.outputformat.class&quot;,
  *    MyDbOutputFormatClass, OutputFormat.class);
- * myHadoopConfiguration.setClass(&quot;mapreduce.job.outputformat.key.class&quot;,
+ * myHadoopConfiguration.setClass(&quot;mapreduce.job.output.key.class&quot;,
  *    MyDbOutputFormatKeyClass, Object.class);
- * myHadoopConfiguration.setClass(&quot;mapreduce.job.outputformat.value.class&quot;,
+ * myHadoopConfiguration.setClass(&quot;mapreduce.job.output.value.class&quot;,
  *    MyDbOutputFormatValueClass, Object.class);
+ * myHadoopConfiguration.setClass(&quot;mapreduce.job.output.value.class&quot;,
+ *    MyPartitionerClass, Object.class);
+ * myHadoopConfiguration.setInt(&quot;mapreduce.job.reduces&quot;, 2);
  * }</pre>
  *
- * <p>You will need to set appropriate OutputFormat key and value class (i.e.
- * "mapreduce.job.outputformat.key.class" and "mapreduce.job.outputformat.value.class") in Hadoop
- * {@link Configuration}. If you set different OutputFormat key or value class than OutputFormat's
- * actual key or value class then, it may result in an error like "unexpected extra bytes after
- * decoding" while the decoding process of key/value object happens. Hence, it is important to set
- * appropriate OutputFormat key and value class.
+ * <p>You will need to set OutputFormat key and value class (i.e. "mapreduce.job.output.key.class"
+ * and "mapreduce.job.output.value.class") in Hadoop {@link Configuration} which are equal to {@code
+ * KeyT} and {@code ValueT}. If you set different OutputFormat key or value class than
+ * OutputFormat's actual key or value class then, it will throw {@link IllegalArgumentException}
  *
  * <h3>Writing using {@link HadoopFormatIO}</h3>
  *
@@ -133,9 +143,10 @@ public class HadoopFormatIO {
   public static final String PARTITIONER_CLASS_ATTR = MRJobConfig.PARTITIONER_CLASS_ATTR;
 
   /**
-   * Creates an uninitialized {@link HadoopFormatIO.Write}. Before use, the {@code Write} must be
-   * initialized with a HadoopFormatIO.Write#withConfiguration(HadoopConfiguration) that specifies
-   * the sink.
+   * Creates an uninitialized {@link HadoopFormatIO.Write.Builder}. Before use, the {@code Write}
+   * must be initialized with a {@link Write.Builder#withConfiguration(Configuration)} or {@link
+   * Write.Builder#withConfigurationTransformation(IConfigurationTransform)} or {@link
+   * Write.Builder#withConfigurationWithoutPartitioning(Configuration)} that specifies the sink.
    */
   public static <KeyT, ValueT> Write.Builder<KeyT, ValueT> write() {
     return new AutoValue_HadoopFormatIO_Write.Builder<>();
@@ -161,9 +172,10 @@ public class HadoopFormatIO {
     /** Default "reduce" function for extraction of one Configuration. */
     Combine.IterableCombineFn<Configuration> DEFAULT_CONFIG_COMBINE_FN =
         Combine.IterableCombineFn.of(
-            (configurations) ->
-                Optional.ofNullable(Iterables.getFirst(configurations, null))
-                    .orElseThrow(() -> new IllegalStateException("Any configuration found!")));
+            (configurations) -> {
+              Iterable<Configuration> filtered = Iterables.filter(configurations, Objects::nonNull);
+              return Iterables.getFirst(filtered, null);
+            });
 
     /**
      * "Map" function which should transform one {@link KV} pair into hadoop {@link Configuration}.
@@ -190,8 +202,11 @@ public class HadoopFormatIO {
   }
 
   /**
-   * @param <KeyT>
-   * @param <ValueT>
+   * Default implementation of Configuration transform. It requires only particular {@link
+   * PTransform} to be specified.
+   *
+   * @param <KeyT> Key type which should be written
+   * @param <ValueT> Value type which should be written
    */
   private static class DefaultConfigurationTransform<KeyT, ValueT>
       implements IConfigurationTransform<KeyT, ValueT> {
@@ -212,6 +227,14 @@ public class HadoopFormatIO {
     }
   }
 
+  /**
+   * Generates tasks for output pairs and groups them by this key.
+   *
+   * <p>This transformation is used when is configured write with partitioning.
+   *
+   * @param <KeyT> type of key
+   * @param <ValueT> type of value
+   */
   private static class GroupDataByPartition<KeyT, ValueT>
       extends PTransform<
           PCollection<KV<KeyT, ValueT>>, PCollection<KV<Integer, KV<KeyT, ValueT>>>> {
@@ -271,7 +294,7 @@ public class HadoopFormatIO {
     public abstract boolean isWithPartitioning();
 
     @AutoValue.Builder
-    abstract static class Builder<KeyT, ValueT> {
+    public abstract static class Builder<KeyT, ValueT> {
 
       public abstract Builder<KeyT, ValueT> setConfiguration(Configuration newConfiguration);
 
@@ -283,7 +306,11 @@ public class HadoopFormatIO {
       abstract Write<KeyT, ValueT> build();
 
       /**
-       * Write to the sink using the options provided by the given hadoop configuration.
+       * Writes to the sink using the options provided by the given hadoop configuration.
+       *
+       * <p><b>Note:</b> Works only for {@link
+       * org.apache.beam.sdk.values.PCollection.IsBounded#BOUNDED} {@link PCollection} with global
+       * {@link WindowingStrategy}.
        *
        * @param configuration hadoop configuration.
        * @return Created write function
@@ -297,6 +324,20 @@ public class HadoopFormatIO {
         return setConfiguration(new Configuration(configuration)).setWithPartitioning(true).build();
       }
 
+      /**
+       * Writes to the sink without need to partition output into specified number of partitions.
+       *
+       * <p>This write operation doesn't do shuffle by the partition so it saves transfer time
+       * before write operation itself. As a consequence it generates random number of partitions.
+       *
+       * <p><b>Note:</b> Works only for {@link
+       * org.apache.beam.sdk.values.PCollection.IsBounded#BOUNDED} {@link PCollection} with global
+       * {@link WindowingStrategy}.
+       *
+       * @param configuration hadoop configuration
+       * @return Created write function
+       * @throws IllegalArgumentException when the configuration is null
+       */
       public Write<KeyT, ValueT> withConfigurationWithoutPartitioning(Configuration configuration)
           throws IllegalArgumentException {
         checkArgument(Objects.nonNull(configuration), "Configuration can not be null");
@@ -306,9 +347,33 @@ public class HadoopFormatIO {
             .build();
       }
 
+      /**
+       * Writes to the sink using configuration created by provided {@code
+       * configurationTransformation}.
+       *
+       * <p>Parameter {@code configurationTransformation} should provide way how to transform input
+       * data into {@link PCollection} of hadoop configurations.
+       *
+       * <p>PCollection of configuration is then reduced to one by {@link
+       * IConfigurationTransform#DEFAULT_CONFIG_COMBINE_FN}
+       *
+       * <p>This type is useful especially for processing unbounded windowed data but can be used *
+       * also for batch processing.
+       *
+       * @param configurationTransformation transformation of input data into hadoop configurations
+       * @return Created write function
+       * @throws IllegalArgumentException when {@code configurationTransformation} is {@code null}
+       * @see DefaultConfigurationTransform
+       * @see #withConfigurationTransformation(IConfigurationTransform)
+       */
       public Write<KeyT, ValueT> withConfigurationTransformation(
           PTransform<PCollection<? extends KV<KeyT, ValueT>>, PCollection<Configuration>>
-              configurationTransformation) {
+              configurationTransformation)
+          throws IllegalArgumentException {
+
+        checkArgument(
+            Objects.nonNull(configurationTransformation),
+            "Configuration transformation can not be null");
 
         setConfigTransform(() -> configurationTransformation).setWithPartitioning(true).build();
 
@@ -316,8 +381,35 @@ public class HadoopFormatIO {
             .build();
       }
 
+      /**
+       * Writes to the sink using configuration created by provided {@code
+       * configurationTransformation}.
+       *
+       * <p>{@link IConfigurationTransform} should provide workflow how to extract one particular
+       * configuration from input data.
+       *
+       * <ul>
+       *   <li>Method {@link IConfigurationTransform#getConfigTransform()} transforms input data
+       *       into set of configurations
+       *   <li>Method {@link IConfigurationTransform#getConfigCombineFn()} reduces set of
+       *       configurations into one particular configuration which will be used for data writing
+       * </ul>
+       *
+       * <p>This type is useful especially for processing unbounded windowed data but can be used
+       * also for batch processing.
+       *
+       * @param configurationTransformation configuration transformation interface
+       * @return Created write function
+       * @throws IllegalArgumentException when {@code configurationTransformation} is {@code null}
+       */
       public Write<KeyT, ValueT> withConfigurationTransformation(
-          IConfigurationTransform<KeyT, ValueT> configurationTransformation) {
+          IConfigurationTransform<KeyT, ValueT> configurationTransformation)
+          throws IllegalArgumentException {
+
+        checkArgument(
+            Objects.nonNull(configurationTransformation),
+            "Configuration transformation can not be null");
+
         return setConfigTransform(configurationTransformation).setWithPartitioning(true).build();
       }
     }
@@ -352,6 +444,15 @@ public class HadoopFormatIO {
     @Override
     public PDone expand(PCollection<KV<KeyT, ValueT>> input) {
 
+      // streamed pipeline must have defined configuration transformation
+      if (!input.isBounded().equals(PCollection.IsBounded.BOUNDED)
+          || !input.getWindowingStrategy().equals(WindowingStrategy.globalDefault())) {
+        checkArgument(
+            getConfigTransform() != null,
+            "Writing of unbounded data can be processed only with configuration transformation provider. See %s.withConfigurationTransformation()",
+            Write.class);
+      }
+
       PCollectionView<Configuration> configView = createConfigViewAndSetupJob(input);
 
       return processJob(input, configView);
@@ -361,11 +462,17 @@ public class HadoopFormatIO {
      * Processes write job. Write job is composed from following partial steps:
      *
      * <ul>
-     *   <li>Assigning of the {@link TaskID} (represented as {@link Integer}) to the {@link KV}s in
-     *       {@link AssignTaskFn}
-     *   <li>Grouping {@link KV}s by the {@link TaskID}
+     *   <li>When partitioning is enabled:
+     *       <ul>
+     *         <li>Assigning of the {@link TaskID} (represented as {@link Integer}) to the {@link
+     *             KV}s in {@link AssignTaskFn}
+     *         <li>Grouping {@link KV}s by the {@link TaskID}
+     *       </ul>
+     *   <li>Otherwise creation of TaskId via {@link PrepareNonPartitionedTasksFn} where locks are
+     *       created for each task id
      *   <li>Writing of {@link KV} records via {@link WriteFn}
-     *   <li>Global collecting of all finished Task Ids
+     *   <li>Global collecting of all finished Task Ids (and with locks cleaning via {@link
+     *       FinishNonPartitionedTasksFn} if partitioning is disabled )
      *   <li>Committing of whole job via {@link CommitJobFn}
      * </ul>
      *
@@ -383,7 +490,7 @@ public class HadoopFormatIO {
           isWithPartitioning()
               ? input.apply("GroupDataByPartition", new GroupDataByPartition<>(configView))
               : input.apply(
-                  "PrepareNonPartitionedTasksFn",
+                  "PrepareNonPartitionedTasks",
                   ParDo.of(new PrepareNonPartitionedTasksFn<KeyT, ValueT>(configView))
                       .withSideInputs(configView));
 
@@ -402,6 +509,7 @@ public class HadoopFormatIO {
       if (!isWithPartitioning()) {
         collectedFinishedWrites =
             collectedFinishedWrites.apply(
+                "FinishNonPartitionedTasks",
                 ParDo.of(new FinishNonPartitionedTasksFn(configView)).withSideInputs(configView));
       }
 
@@ -474,7 +582,8 @@ public class HadoopFormatIO {
         config =
             input
                 .getPipeline()
-                .apply("CreateOutputConfig", Create.<Configuration>of(getConfiguration()));
+                .apply("CreateOutputConfig", Create.<Configuration>of(getConfiguration()))
+                .apply(Combine.globally(IConfigurationTransform.DEFAULT_CONFIG_COMBINE_FN));
       } else if (getConfigTransform() != null) {
         config =
             input
@@ -531,7 +640,6 @@ public class HadoopFormatIO {
           "Configuration must contain \"" + OUTPUT_VALUE_CLASS + "\"");
     }
   }
-
 
   /**
    * Validates input data whether have correctly specified {@link TypeDescriptor}s of input data and
@@ -689,14 +797,12 @@ public class HadoopFormatIO {
      *
      * @param config received config
      * @param receiver output receiver
-     * @param c process context for pane info fetching
      * @param window info about window
      */
     @DoFn.ProcessElement
     public void processElement(
         @DoFn.Element Configuration config,
         OutputReceiver<Configuration> receiver,
-        ProcessContext c,
         BoundedWindow window) {
 
       Configuration hadoopConf = new Configuration(config);
@@ -705,21 +811,14 @@ public class HadoopFormatIO {
 
       hadoopConf.set(MRJobConfig.ID, jobId.getJtIdentifier());
 
-      if (c.pane().isFirst()) {
-        setupJob(jobId, hadoopConf);
-      }
-
-      // TODO delete
-      hadoopConf.set("AAAAAAAAAAAApane.index", String.valueOf(c.pane().getIndex()));
+      setupJob(jobId, hadoopConf);
 
       receiver.output(hadoopConf);
 
       LOGGER.info(
-          "Job with id {} successfully configured from window with max timestamp {} and pane with index {}, is first: {}.",
+          "Job with id {} successfully configured from window with max timestamp {}.",
           jobId.getJtIdentifier(),
-          window.maxTimestamp(),
-          c.pane().getIndex(),
-          c.pane().isFirst());
+          window.maxTimestamp());
     }
 
     /**
@@ -758,10 +857,8 @@ public class HadoopFormatIO {
     @ProcessElement
     public void processElement(ProcessContext c) {
 
-      if (c.pane().isLast()) {
-        Configuration config = c.sideInput(configView);
-        cleanupJob(config);
-      }
+      Configuration config = c.sideInput(configView);
+      cleanupJob(config);
     }
 
     /**
@@ -876,9 +973,9 @@ public class HadoopFormatIO {
    * <p>For every {@link TaskID} are executed following steps:
    *
    * <ul>
-   *   <li>Creation of {@link TaskContext} during first pane processing.
-   *   <li>Writing of every single {@link KV} pair via {@link RecordWriter}.
-   *   <li>Committing of task after processing of the last pane for given {@link TaskContext}
+   *   <li>Creation of {@link TaskContext} on start of bundle
+   *   <li>Writing every single {@link KV} pair via {@link RecordWriter}.
+   *   <li>Committing of task on bundle finish
    * </ul>
    *
    * @param <KeyT> Type of key
