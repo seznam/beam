@@ -4,15 +4,24 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.UUID;
 import javax.annotation.Nullable;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.mapreduce.*;
+import org.apache.hadoop.mapreduce.JobID;
+import org.apache.hadoop.mapreduce.MRJobConfig;
+import org.apache.hadoop.mapreduce.OutputFormat;
+import org.apache.hadoop.mapreduce.Partitioner;
+import org.apache.hadoop.mapreduce.TaskAttemptContext;
+import org.apache.hadoop.mapreduce.TaskAttemptID;
+import org.apache.hadoop.mapreduce.TaskID;
+import org.apache.hadoop.mapreduce.TaskType;
 import org.apache.hadoop.mapreduce.lib.partition.HashPartitioner;
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl;
 
-class HadoopUtils {
+final class HadoopUtils {
 
   private static final int DEFAULT_JOB_NUMBER = 0;
   static final Class<HashPartitioner> DEFAULT_PARTITIONER_CLASS_ATTR = HashPartitioner.class;
   static final int DEFAULT_NUM_REDUCERS = 1;
+
+  private HadoopUtils() {}
 
   static JobID createJobId() {
     return new JobID(UUID.randomUUID().toString(), DEFAULT_JOB_NUMBER);
@@ -43,7 +52,7 @@ class HadoopUtils {
 
   /**
    * Returns instance of {@link OutputFormat} by class name stored in the configuration under key
-   * {@link MRJobConfig#OUTPUT_FORMAT_CLASS_ATTR}
+   * {@link MRJobConfig#OUTPUT_FORMAT_CLASS_ATTR}.
    *
    * @param conf Hadoop configuration
    * @return OutputFormatter

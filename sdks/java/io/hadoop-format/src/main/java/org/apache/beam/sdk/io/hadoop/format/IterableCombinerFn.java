@@ -4,7 +4,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import org.apache.beam.sdk.coders.*;
+import org.apache.beam.sdk.coders.AtomicCoder;
+import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.CoderRegistry;
+import org.apache.beam.sdk.coders.IterableCoder;
+import org.apache.beam.sdk.coders.ListCoder;
 import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.apache.beam.sdk.values.TypeDescriptors;
@@ -19,7 +23,7 @@ class IterableCombinerFn<T>
         T, IterableCombinerFn.CollectionAccumulator<T>, Iterable<T>> {
 
   /**
-   * Accumulator for collecting one "shard" of types
+   * Accumulator for collecting one "shard" of types.
    *
    * @param <T> Type of the elements to collect
    */
@@ -79,7 +83,7 @@ class IterableCombinerFn<T>
    */
   private static class CollectionAccumulatorCoder<T> extends AtomicCoder<CollectionAccumulator<T>> {
 
-    /** List coder is used to en/decode {@link CollectionAccumulator} */
+    /** List coder is used to en/decode {@link CollectionAccumulator}. */
     private ListCoder<T> listCoder;
 
     /**
