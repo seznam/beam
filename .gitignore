@@ -80,4 +80,3 @@ sdks/python/nosetests.xml
 # NOTE: if you modify this file, you probably need to modify the file set that
 # is an input to 'maven-assembly-plugin' that generates source distribution.
 # This is typically in files named 'src.xml' throughout this repository.
-/sdks/java/io/hadoop-format/gradle/wrapper/

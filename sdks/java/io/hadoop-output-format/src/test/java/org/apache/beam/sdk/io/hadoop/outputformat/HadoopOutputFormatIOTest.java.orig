@@ -94,11 +94,7 @@ public class HadoopOutputFormatIOTest {
    * function when Hadoop OutputFormat class is not provided by the user in configuration.
    */
   @Test
-<<<<<<< HEAD
-  public void testWriteValidationFailsMissingOutputFormatInConf() {
-=======
   public void testWriteValidationFailsMissingInputFormatInConf() {
->>>>>>> 044a5b6b24e1f46faba165d08e6df65641237099
     Configuration configuration = new Configuration();
     configuration.setClass(HadoopOutputFormatIO.OUTPUTFORMAT_KEY_CLASS, Text.class, Object.class);
     configuration.setClass(

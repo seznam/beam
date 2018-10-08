@@ -272,6 +272,7 @@ public class HadoopFormatIO {
     }
   }
 
+
   /**
    * A {@link PTransform} that writes to any data sink which implements Hadoop OutputFormat. For
    * e.g. Cassandra, Elasticsearch, HBase, Redis, Postgres, etc. See the class-level Javadoc on
