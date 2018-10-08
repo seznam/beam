@@ -14,7 +14,8 @@ import org.hamcrest.MatcherAssert;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
-public class CollectionCombinerTest {
+/** Tests Iterable combiner whether works correctly. */
+public class IterableCombinerTest {
 
   private static final TypeDescriptor<String> STRING_TYPE_DESCRIPTOR = TypeDescriptors.strings();
 

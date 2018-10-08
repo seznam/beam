@@ -27,7 +27,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -272,7 +271,6 @@ public class HadoopFormatIO {
     }
   }
 
-
   /**
    * A {@link PTransform} that writes to any data sink which implements Hadoop OutputFormat. For
    * e.g. Cassandra, Elasticsearch, HBase, Redis, Postgres, etc. See the class-level Javadoc on
@@ -294,6 +292,12 @@ public class HadoopFormatIO {
 
     public abstract boolean isWithPartitioning();
 
+    /**
+     * Builder for Write transformation.
+     *
+     * @param <KeyT> Key write type
+     * @param <ValueT> Value write type
+     */
     @AutoValue.Builder
     public abstract static class Builder<KeyT, ValueT> {
 
@@ -694,8 +698,10 @@ public class HadoopFormatIO {
   }
 
   /**
-   * @param <KeyT>
-   * @param <ValueT>
+   * Represents context of one hadoop write task.
+   *
+   * @param <KeyT> Key type to write
+   * @param <ValueT> Value type to write
    */
   private static class TaskContext<KeyT, ValueT> {
 
