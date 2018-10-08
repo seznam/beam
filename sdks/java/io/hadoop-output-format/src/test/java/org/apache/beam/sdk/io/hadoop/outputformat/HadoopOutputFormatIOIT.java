@@ -20,6 +20,7 @@ package org.apache.beam.sdk.io.hadoop.outputformat;
 import static org.apache.beam.sdk.io.common.IOITHelper.executeWithRetry;
 import static org.apache.beam.sdk.io.common.IOITHelper.readIOTestPipelineOptions;
 import static org.apache.beam.sdk.io.common.TestRow.getExpectedHashForRowCount;
+
 import java.sql.SQLException;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.GenerateSequence;
@@ -47,6 +48,7 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.postgresql.ds.PGSimpleDataSource;
+
 /**
  * A test of {@link org.apache.beam.sdk.io.hadoop.outputformat.HadoopOutputFormatIO} on an
  * independent postgres instance.
@@ -71,10 +73,12 @@ import org.postgresql.ds.PGSimpleDataSource;
  * performance testing framework.
  */
 public class HadoopOutputFormatIOIT {
+
   private static PGSimpleDataSource dataSource;
   private static Integer numberOfRows;
   private static String tableName;
   private static SerializableConfiguration hadoopConfiguration;
+
   @Rule public TestPipeline writePipeline = TestPipeline.create();
   @Rule public TestPipeline readPipeline = TestPipeline.create();
 
@@ -82,9 +86,11 @@ public class HadoopOutputFormatIOIT {
   public static void setUp() throws Exception {
     PostgresIOTestPipelineOptions options =
         readIOTestPipelineOptions(PostgresIOTestPipelineOptions.class);
+
     dataSource = DatabaseTestHelper.getPostgresDataSource(options);
     numberOfRows = options.getNumberOfRecords();
     tableName = DatabaseTestHelper.getTestTableName("HadoopOutputFormatIOIT");
+
     executeWithRetry(HadoopOutputFormatIOIT::createTable);
     setupHadoopConfiguration(options);
   }
@@ -104,11 +110,13 @@ public class HadoopOutputFormatIOIT {
     conf.set(DBConfiguration.OUTPUT_TABLE_NAME_PROPERTY, tableName);
     conf.set(DBConfiguration.OUTPUT_FIELD_COUNT_PROPERTY, "2");
     conf.setStrings(DBConfiguration.OUTPUT_FIELD_NAMES_PROPERTY, "id", "name");
+
     conf.setClass(
         HadoopOutputFormatIO.OUTPUTFORMAT_KEY_CLASS, TestRowDBWritable.class, Object.class);
     conf.setClass(HadoopOutputFormatIO.OUTPUTFORMAT_VALUE_CLASS, NullWritable.class, Object.class);
     conf.setClass(
         HadoopOutputFormatIO.OUTPUTFORMAT_CLASS, DBOutputFormat.class, OutputFormat.class);
+
     hadoopConfiguration = new SerializableConfiguration(conf);
   }
 
@@ -131,7 +139,9 @@ public class HadoopOutputFormatIOIT {
             "Write using HadoopOutputFormat",
             HadoopOutputFormatIO.<TestRowDBWritable, NullWritable>write()
                 .withConfiguration(hadoopConfiguration.get()));
+
     writePipeline.run().waitUntilFinish();
+
     PCollection<String> consolidatedHashcode =
         readPipeline
             .apply(
@@ -144,8 +154,10 @@ public class HadoopOutputFormatIOIT {
                     .withCoder(StringUtf8Coder.of()))
             .apply("Calculate hashcode", Combine.globally(new HashingFn()));
     PAssert.thatSingleton(consolidatedHashcode).isEqualTo(getExpectedHashForRowCount(numberOfRows));
+
     readPipeline.run().waitUntilFinish();
   }
+
   /**
    * Uses the input {@link TestRow} values as seeds to produce new {@link KV}s for {@link
    * HadoopOutputFormatIO}.
