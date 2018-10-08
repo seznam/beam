@@ -229,7 +229,7 @@ public interface PipelineOptions extends HasDisplayData {
   @Default.InstanceFactory(DirectRunner.class)
   Class<? extends PipelineRunner<?>> getRunner();
 
-  void setRunner(Class<? extends PipelineRunner<?>> kls);
+  PipelineOptions setRunner(Class<? extends PipelineRunner<?>> kls);
 
   /** Enumeration of the possible states for a given check. */
   enum CheckEnabled {

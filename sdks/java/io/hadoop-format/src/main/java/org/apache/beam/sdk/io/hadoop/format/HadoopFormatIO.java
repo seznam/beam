@@ -27,7 +27,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -36,6 +35,7 @@ import javax.annotation.Nullable;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.AtomicCoder;
 import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.transforms.CombineFnBase;
 import org.apache.beam.sdk.transforms.Create;
@@ -159,11 +159,12 @@ public class HadoopFormatIO {
   interface IConfigurationTransform<KeyT, ValueT> {
 
     /** Default "reduce" function for extraction of one Configuration. */
+
     Combine.IterableCombineFn<Configuration> DEFAULT_CONFIG_COMBINE_FN =
-        Combine.IterableCombineFn.of(
-            (configurations) ->
-                Optional.ofNullable(Iterables.getFirst(configurations, null))
-                    .orElseThrow(() -> new IllegalStateException("Any configuration found!")));
+        Combine.IterableCombineFn.of((configurations) -> {
+          Iterable<Configuration> filtered = Iterables.filter(configurations, Objects::nonNull);
+          return Iterables.getFirst(filtered, null);
+        });
 
     /**
      * "Map" function which should transform one {@link KV} pair into hadoop {@link Configuration}.
@@ -271,7 +272,7 @@ public class HadoopFormatIO {
     public abstract boolean isWithPartitioning();
 
     @AutoValue.Builder
-    abstract static class Builder<KeyT, ValueT> {
+    public abstract static class Builder<KeyT, ValueT> {
 
       public abstract Builder<KeyT, ValueT> setConfiguration(Configuration newConfiguration);
 
@@ -433,7 +434,7 @@ public class HadoopFormatIO {
     private PCollectionView<Configuration> createConfigViewAndSetupJob(
         PCollection<KV<KeyT, ValueT>> input) {
 
-      TypeDescriptor<Configuration> configType = new TypeDescriptor<Configuration>() {};
+      TypeDescriptor<Configuration> configType = TypeDescriptor.of(Configuration.class);
       input
           .getPipeline()
           .getCoderRegistry()
@@ -441,12 +442,24 @@ public class HadoopFormatIO {
 
       PCollection<Configuration> config = createConfiguration(input);
 
+      PAssert.that(config).satisfies(input1 ->{
+        int count = 0;
+        for(Configuration c : input1){
+          LOGGER.info("confiiiig "+ c.toString()+ "");
+          count++;
+        }
+        if( count > 1)
+          throw new RuntimeException("count of configs" + count);
+        return null;
+      });
       PCollectionView<Configuration> configView =
           config
               .apply("ValidateConfiguration", ParDo.of(new ConfigurationValidatorFn()))
               .apply("ValidateInput", ParDo.of(new InputValidatorFn<>(input.getTypeDescriptor())))
               .apply("SetupWriteJob", ParDo.of(new SetupJobFn()))
               .apply(View.asSingleton());
+
+      LOGGER.info(configView.getWindowMappingFn() + " confiiig view ");
 
       return configView;
     }
@@ -471,10 +484,12 @@ public class HadoopFormatIO {
 
       PCollection<Configuration> config;
       if (getConfiguration() != null) {
+        LOGGER.info("creating confiiig");
         config =
             input
                 .getPipeline()
-                .apply("CreateOutputConfig", Create.<Configuration>of(getConfiguration()));
+                .apply("CreateOutputConfig", Create.<Configuration>of(getConfiguration()))
+                .apply(Combine.globally(DefaultConfigurationTransform.DEFAULT_CONFIG_COMBINE_FN).withoutDefaults());
       } else if (getConfigTransform() != null) {
         config =
             input
@@ -504,6 +519,8 @@ public class HadoopFormatIO {
       Configuration validatedConf = new Configuration(conf);
       validateConfiguration(validatedConf);
       fillDefaultPropertiesIfMissing(validatedConf);
+
+      LOGGER.info("what the hell "+ conf.hashCode() );
 
       receiver.output(validatedConf);
     }
@@ -580,6 +597,8 @@ public class HadoopFormatIO {
           inputTypeDescriptor.resolveType(KV.class.getTypeParameters()[0]),
           inputTypeDescriptor.resolveType(KV.class.getTypeParameters()[1]));
 
+
+      LOGGER.info("what the hell 2 "+ configuration.hashCode() );
       receiver.output(configuration);
     }
   }
@@ -704,13 +723,17 @@ public class HadoopFormatIO {
       JobID jobId = HadoopUtils.createJobId(String.valueOf(window.maxTimestamp().getMillis()));
 
       hadoopConf.set(MRJobConfig.ID, jobId.getJtIdentifier());
+      LOGGER.info("eleee "+ c.element() + " " + c.element().hashCode() + " ");
 
+      LOGGER.info(
+          "Job with id {} successfully configured from window with max timestamp {} and pane with index {}, is first: {}.",
+          jobId.getJtIdentifier(),
+          window.maxTimestamp(),
+          c.pane().getIndex(),
+          c.pane().isFirst());
       if (c.pane().isFirst()) {
         setupJob(jobId, hadoopConf);
       }
-
-      // TODO delete
-      hadoopConf.set("AAAAAAAAAAAApane.index", String.valueOf(c.pane().getIndex()));
 
       receiver.output(hadoopConf);
 

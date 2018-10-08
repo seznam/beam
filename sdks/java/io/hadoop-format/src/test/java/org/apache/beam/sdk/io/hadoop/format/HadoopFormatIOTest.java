@@ -20,9 +20,12 @@ import static org.junit.Assert.*;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.beam.runners.spark.TestSparkRunner;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.hadoop.inputformat.Employee;
 import org.apache.beam.sdk.io.hadoop.inputformat.TestEmployeeDataSet;
+import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.display.DisplayData;
@@ -53,7 +56,8 @@ public class HadoopFormatIOTest {
   private static final int REDUCERS_COUNT = 2;
   private static Configuration conf;
 
-  @Rule public final transient TestPipeline p = TestPipeline.create();
+  PipelineOptions as = PipelineOptionsFactory.create().setRunner(TestSparkRunner.class);
+  @Rule public final transient TestPipeline p = TestPipeline.fromOptions(as);
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Before

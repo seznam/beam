@@ -10,8 +10,10 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.beam.examples.WordCount;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.testing.NeedsRunner;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.testing.TestStream;
+import org.apache.beam.sdk.testing.ValidatesRunner;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -38,8 +40,12 @@ import org.joda.time.Duration;
 import org.joda.time.Instant;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 
+@RunWith(JUnit4.class)
 public class HadoopFormatIOSequenceFileTest {
 
   private static final Instant START_TIME = new Instant(0);
@@ -76,6 +82,7 @@ public class HadoopFormatIOSequenceFileTest {
   @Rule public TestPipeline pipeline = TestPipeline.create();
 
   @Test
+  @Category(NeedsRunner.class)
   public void batchTest() {
 
     String outputDir = getOutputDirPath();
