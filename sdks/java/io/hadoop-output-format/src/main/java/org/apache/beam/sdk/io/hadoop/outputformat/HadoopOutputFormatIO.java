@@ -13,6 +13,7 @@
  * the License.
  */
 package org.apache.beam.sdk.io.hadoop.outputformat;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import com.google.auto.value.AutoValue;
 import java.io.IOException;
@@ -120,19 +121,28 @@ public class HadoopOutputFormatIO {
     // Returns the Hadoop Configuration which contains specification of sink.
     @Nullable
     public abstract SerializableConfiguration getConfiguration();
+
     @Nullable
     public abstract TypeDescriptor<?> getOutputFormatClass();
+
     @Nullable
     public abstract TypeDescriptor<?> getOutputFormatKeyClass();
+
     @Nullable
     public abstract TypeDescriptor<?> getOutputFormatValueClass();
+
     abstract Builder<K, V> toBuilder();
+
     @AutoValue.Builder
     abstract static class Builder<K, V> {
       abstract Builder<K, V> setConfiguration(SerializableConfiguration configuration);
+
       abstract Builder<K, V> setOutputFormatClass(TypeDescriptor<?> outputFormatClass);
+
       abstract Builder<K, V> setOutputFormatKeyClass(TypeDescriptor<?> outputFormatKeyClass);
+
       abstract Builder<K, V> setOutputFormatValueClass(TypeDescriptor<?> outputFormatValueClass);
+
       abstract Write<K, V> build();
     }
     /** Write to the sink using the options provided by the given configuration. */
@@ -168,8 +178,10 @@ public class HadoopOutputFormatIO {
           configuration.get(OUTPUTFORMAT_VALUE_CLASS) != null,
           "Configuration must contain \"" + OUTPUTFORMAT_VALUE_CLASS + "\"");
     }
+
     @Override
     public void validate(PipelineOptions pipelineOptions) {}
+
     @Override
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
@@ -186,12 +198,14 @@ public class HadoopOutputFormatIO {
                 .withLabel("OutputFormat Value Class"));
       }
     }
+
     @Override
     public PDone expand(PCollection<KV<K, V>> input) {
       input.apply(ParDo.of(new WriteFn<>(this)));
       return PDone.in(input.getPipeline());
     }
   }
+
   private static class WriteFn<K, V> extends DoFn<KV<K, V>, Void> {
     private final Write<K, V> spec;
     private final SerializableConfiguration conf;
@@ -199,10 +213,12 @@ public class HadoopOutputFormatIO {
     private transient OutputCommitter outputCommitter;
     private transient OutputFormat<?, ?> outputFormatObj;
     private transient TaskAttemptContext taskAttemptContext;
+
     WriteFn(Write<K, V> spec) {
       this.spec = spec;
       conf = spec.getConfiguration();
     }
+
     @Setup
     public void setup() throws IOException {
       if (recordWriter == null) {
@@ -240,11 +256,13 @@ public class HadoopOutputFormatIO {
         }
       }
     }
+
     @ProcessElement
     public void processElement(ProcessContext c)
         throws ExecutionException, InterruptedException, IOException {
       recordWriter.write(c.element().getKey(), c.element().getValue());
     }
+
     @Teardown
     public void teardown() throws Exception {
       if (recordWriter != null) {

@@ -16,6 +16,7 @@
  * limitations under the License.
  */
 package org.apache.beam.sdk.io.hadoop.outputformat;
+
 import static org.apache.beam.sdk.io.common.IOITHelper.executeWithRetry;
 import static org.apache.beam.sdk.io.common.IOITHelper.readIOTestPipelineOptions;
 import static org.apache.beam.sdk.io.common.TestRow.getExpectedHashForRowCount;
@@ -76,6 +77,7 @@ public class HadoopOutputFormatIOIT {
   private static SerializableConfiguration hadoopConfiguration;
   @Rule public TestPipeline writePipeline = TestPipeline.create();
   @Rule public TestPipeline readPipeline = TestPipeline.create();
+
   @BeforeClass
   public static void setUp() throws Exception {
     PostgresIOTestPipelineOptions options =
@@ -86,9 +88,11 @@ public class HadoopOutputFormatIOIT {
     executeWithRetry(HadoopOutputFormatIOIT::createTable);
     setupHadoopConfiguration(options);
   }
+
   private static void createTable() throws SQLException {
     DatabaseTestHelper.createTable(dataSource, tableName);
   }
+
   private static void setupHadoopConfiguration(PostgresIOTestPipelineOptions options) {
     Configuration conf = new Configuration();
     DBConfiguration.configureDB(
@@ -107,13 +111,16 @@ public class HadoopOutputFormatIOIT {
         HadoopOutputFormatIO.OUTPUTFORMAT_CLASS, DBOutputFormat.class, OutputFormat.class);
     hadoopConfiguration = new SerializableConfiguration(conf);
   }
+
   @AfterClass
   public static void tearDown() throws Exception {
     executeWithRetry(HadoopOutputFormatIOIT::deleteTable);
   }
+
   private static void deleteTable() throws SQLException {
     DatabaseTestHelper.deleteTable(dataSource, tableName);
   }
+
   @Test
   public void writeUsingHadoopOutputFormat() {
     writePipeline
