@@ -93,7 +93,7 @@ import org.slf4j.LoggerFactory;
  *       tasks which will be genarated. This property is not required for {@link
  *       Write.Builder#withConfigurationWithoutPartitioning(Configuration)} write.
  *   <li>{@code mapreduce.job.partitioner.class}: Hadoop partitioner class which will be used for
- *       distributing of records among partitions. This property is not required for {@link *
+ *       distributing of records among partitions. This property is not required for {@link
  *       Write.Builder#withConfigurationWithoutPartitioning(Configuration)} write.
  * </ul>
  *
@@ -146,6 +146,10 @@ public class HadoopFormatIO {
    * must be initialized with a {@link Write.Builder#withConfiguration(Configuration)} or {@link
    * Write.Builder#withConfigurationTransformation(IConfigurationTransform)} or {@link
    * Write.Builder#withConfigurationWithoutPartitioning(Configuration)} that specifies the sink.
+   *
+   * @param <KeyT> Type of keys to be written.
+   * @param <ValueT> Type of values to be written.
+   * @return Write builder
    */
   public static <KeyT, ValueT> Write.Builder<KeyT, ValueT> write() {
     return new AutoValue_HadoopFormatIO_Write.Builder<>();
@@ -369,7 +373,7 @@ public class HadoopFormatIO {
        * @return Created write function
        * @throws IllegalArgumentException when {@code configurationTransformation} is {@code null}
        * @see DefaultConfigurationTransform
-       * @see #withConfigurationTransformation(IConfigurationTransform)
+       * @see Write.Builder#withConfigurationTransformation(IConfigurationTransform)
        */
       public Write<KeyT, ValueT> withConfigurationTransformation(
           PTransform<PCollection<? extends KV<KeyT, ValueT>>, PCollection<Configuration>>
@@ -896,13 +900,14 @@ public class HadoopFormatIO {
   private static class AssignTaskFn<KeyT, ValueT>
       extends DoFn<KV<KeyT, ValueT>, KV<Integer, KV<KeyT, ValueT>>> {
 
-    /** Cache of created TaskIDs for given bundle. */
-    private Map<Integer, TaskID> partitionToTaskContext = new HashMap<>();
-
     PCollectionView<Configuration> configView;
-    private Partitioner<KeyT, ValueT> partitioner;
-    private Integer reducersCount;
-    private JobID jobId;
+
+    //Transient properties because they are used only for one bundle
+    /** Cache of created TaskIDs for given bundle.*/
+    private transient Map<Integer, TaskID> partitionToTaskContext;
+    private transient Partitioner<KeyT, ValueT> partitioner;
+    private transient Integer reducersCount;
+    private transient JobID jobId;
 
     /**
      * Needs configuration view of given window.
@@ -916,6 +921,7 @@ public class HadoopFormatIO {
     /** Deletes cached fields used in previous bundle. */
     @StartBundle
     public void startBundle() {
+      partitionToTaskContext = new HashMap<>();
       partitioner = null;
       reducersCount = null;
       jobId = null;
@@ -990,8 +996,9 @@ public class HadoopFormatIO {
    */
   private static class WriteFn<KeyT, ValueT> extends DoFn<KV<Integer, KV<KeyT, ValueT>>, Integer> {
 
-    private TaskContext<KeyT, ValueT> bundleTaskContext;
-    private Set<BoundedWindow> boundedWindowSet;
+    //Transient properties because they are used only for one bundle
+    private transient TaskContext<KeyT, ValueT> bundleTaskContext;
+    private transient Set<BoundedWindow> boundedWindowSet;
 
     private PCollectionView<Configuration> configView;
 
