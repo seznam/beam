@@ -47,8 +47,6 @@ import org.mockito.Mockito;
 import org.mockito.runners.MockitoJUnitRunner;
 
 /** Unit tests for {@link HadoopFormatIO}. */
-
-// @Ignore
 @RunWith(MockitoJUnitRunner.class)
 public class HadoopFormatIOTest {
 
@@ -244,6 +242,6 @@ public class HadoopFormatIOTest {
         displayData,
         hasDisplayItem(
             HadoopFormatIO.PARTITIONER_CLASS_ATTR,
-            HadoopUtils.DEFAULT_PARTITIONER_CLASS_ATTR.getName()));
+            HadoopFormats.DEFAULT_PARTITIONER_CLASS_ATTR.getName()));
   }
 }
