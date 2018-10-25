@@ -19,6 +19,7 @@ package org.apache.beam.runners.spark.coders;
 
 import com.esotericsoftware.kryo.Kryo;
 import org.apache.beam.runners.spark.io.MicrobatchSource;
+import org.apache.beam.runners.spark.translation.GroupNonMergingWindowsFunctions.KeyAndWindow;
 import org.apache.spark.serializer.KryoRegistrator;
 
 /** Custom {@link KryoRegistrator}s for Beam's Spark runner needs. */
@@ -28,5 +29,6 @@ public class BeamSparkRunnerRegistrator implements KryoRegistrator {
   public void registerClasses(Kryo kryo) {
     // MicrobatchSource is serialized as data and may not be Kryo-serializable.
     kryo.register(MicrobatchSource.class, new StatelessJavaSerializer());
+    kryo.register(KeyAndWindow.class);
   }
 }
