@@ -18,9 +18,18 @@
 package org.apache.beam.runners.spark.coders;
 
 import com.esotericsoftware.kryo.Kryo;
+import com.google.common.collect.HashBasedTable;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import org.apache.beam.runners.spark.io.MicrobatchSource;
 import org.apache.beam.runners.spark.translation.GroupNonMergingWindowsFunctions.KeyAndWindow;
+import org.apache.beam.runners.spark.util.ByteArray;
+import org.apache.beam.runners.spark.stateful.SparkGroupAlsoByWindowViaWindowSet.StateAndTimers;
+import org.apache.beam.runners.spark.util.ByteArray;
+import org.apache.beam.sdk.values.TupleTag;
+import org.apache.beam.runners.spark.translation.GroupNonMergingWindowsFunctions.KeyAndWindow;
 import org.apache.spark.serializer.KryoRegistrator;
+import scala.collection.mutable.WrappedArray;
 
 /** Custom {@link KryoRegistrator}s for Beam's Spark runner needs. */
 public class BeamSparkRunnerRegistrator implements KryoRegistrator {
@@ -29,6 +38,20 @@ public class BeamSparkRunnerRegistrator implements KryoRegistrator {
   public void registerClasses(Kryo kryo) {
     // MicrobatchSource is serialized as data and may not be Kryo-serializable.
     kryo.register(MicrobatchSource.class, new StatelessJavaSerializer());
+    kryo.register(WrappedArray.ofRef.class);
+    kryo.register(Object[].class);
     kryo.register(KeyAndWindow.class);
+    kryo.register(ByteArray.class);
+
+    kryo.register(StateAndTimers.class);
+    kryo.register(TupleTag.class);
+    kryo.register(ArrayList.class);
+    kryo.register(LinkedHashMap.class);
+    kryo.register(HashBasedTable.class);
+    try {
+      kryo.register(Class.forName("com.google.common.collect.HashBasedTable$Factory"));
+    } catch (ClassNotFoundException e) {
+      throw new IllegalStateException("Unable to register classes with kryo.", e);
+    }
   }
 }
