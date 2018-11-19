@@ -22,12 +22,12 @@ import com.google.common.collect.HashBasedTable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import org.apache.beam.runners.spark.io.MicrobatchSource;
-import org.apache.beam.runners.spark.translation.GroupNonMergingWindowsFunctions.KeyAndWindow;
-import org.apache.beam.runners.spark.util.ByteArray;
 import org.apache.beam.runners.spark.stateful.SparkGroupAlsoByWindowViaWindowSet.StateAndTimers;
-import org.apache.beam.runners.spark.util.ByteArray;
-import org.apache.beam.sdk.values.TupleTag;
 import org.apache.beam.runners.spark.translation.GroupNonMergingWindowsFunctions.KeyAndWindow;
+import org.apache.beam.runners.spark.util.ByteArray;
+import org.apache.beam.sdk.transforms.windowing.PaneInfo;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.TupleTag;
 import org.apache.spark.serializer.KryoRegistrator;
 import scala.collection.mutable.WrappedArray;
 
@@ -48,8 +48,11 @@ public class BeamSparkRunnerRegistrator implements KryoRegistrator {
     kryo.register(ArrayList.class);
     kryo.register(LinkedHashMap.class);
     kryo.register(HashBasedTable.class);
+    kryo.register(KV.class);
+    kryo.register(PaneInfo.class);
     try {
       kryo.register(Class.forName("com.google.common.collect.HashBasedTable$Factory"));
+      kryo.register(Class.forName("org.apache.beam.sdk.util.WindowedValue$TimestampedValueInGlobalWindow"));
     } catch (ClassNotFoundException e) {
       throw new IllegalStateException("Unable to register classes with kryo.", e);
     }

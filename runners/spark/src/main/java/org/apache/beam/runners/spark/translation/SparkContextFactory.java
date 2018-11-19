@@ -95,7 +95,7 @@ public final class SparkContextFactory {
 
       conf.setAppName(contextOptions.getAppName());
       conf.set("spark.serializer", KryoSerializer.class.getName());
-      conf.set("spark.kryo.registrationRequired", "true");
+//      conf.set("spark.kryo.registrationRequired", "true");
       // register immutable collections serializers because the SDK uses them.
       conf.set("spark.kryo.registrator", BeamSparkRunnerRegistrator.class.getName());
       return new JavaSparkContext(conf);
