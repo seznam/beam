@@ -20,6 +20,7 @@ package org.apache.beam.runners.spark.util;
 import com.google.common.cache.Cache;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import javax.annotation.Nullable;
 import org.apache.beam.runners.core.SideInputReader;
 import org.apache.beam.runners.spark.util.SideInputStorage.Key;
@@ -69,18 +70,20 @@ public class CachedSideInputReader implements SideInputReader {
     @SuppressWarnings("unchecked")
     final Set<Value<T>> sideInputReferencesCasted = (Set<Value<T>>) sideInputReferences;
 
-    Value<T> value =
-        materializedCasted
-            .asMap()
-            .computeIfAbsent(
-                sideInputKey,
-                key -> {
-                  final T result = delegate.get(view, window);
-                  LOG.info(
-                      "Caching de-serialized side input of size [{}B] in memory.",
-                      SizeEstimator.estimate(result));
-                  return new Value<>(key, result);
-                });
+    Value<T> value;
+    try {
+      value = materializedCasted.get(
+          sideInputKey,
+          () -> {
+            final T result = delegate.get(view, window);
+            LOG.info(
+                "Caching de-serialized side input of size [{}B] in memory.",
+                SizeEstimator.estimate(result));
+            return new Value<>(sideInputKey, result);
+          });
+    } catch (ExecutionException e) {
+      throw new RuntimeException(e.getCause());
+    }
     sideInputReferencesCasted.add(value);
     return value.getData();
   }
