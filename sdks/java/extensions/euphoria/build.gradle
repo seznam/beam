@@ -23,6 +23,7 @@ description = "Apache Beam :: SDKs :: Java :: Extensions :: Euphoria Java 8 DSL"
 
 dependencies {
     shadow project(path: ":beam-sdks-java-core", configuration: "shadow")
+    shadow project(path: ":beam-sdks-java-extensions-sketching", configuration: "shadow")
     shadow library.java.guava
     testCompile library.java.mockito_core
     testCompile project(path: ":beam-sdks-java-extensions-kryo")
