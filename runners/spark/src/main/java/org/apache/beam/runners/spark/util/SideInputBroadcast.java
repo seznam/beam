@@ -23,6 +23,7 @@ import java.io.Serializable;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.broadcast.Broadcast;
+import org.apache.spark.util.SizeEstimator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,6 +56,7 @@ public class SideInputBroadcast<T> implements Serializable {
   }
 
   public void broadcast(JavaSparkContext jsc) {
+    LOG.info("Broadcasting size of broadcast {}", SizeEstimator.estimate(bytes));
     this.bcast = jsc.broadcast(bytes);
   }
 
