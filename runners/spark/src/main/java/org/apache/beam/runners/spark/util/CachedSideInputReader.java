@@ -77,7 +77,8 @@ public class CachedSideInputReader implements SideInputReader {
           () -> {
             final T result = delegate.get(view, window);
             LOG.info(
-                "Caching de-serialized side input of size [{}B] in memory.",
+                "Caching de-serialized side input for {} of size [{}B] in memory.",
+                sideInputKey,
                 SizeEstimator.estimate(result));
             return new Value<>(sideInputKey, result);
           });

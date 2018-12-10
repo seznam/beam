@@ -67,6 +67,15 @@ public class SideInputStorage {
     }
 
     @Override
+    public String toString() {
+      String pName = view.getPCollection() != null? view.getPCollection().getName() :"Unknown";
+      return "Key{" +
+          "view=" + view.getTagInternal() + " of Pcollection["+ pName +
+          "], window=" + window +
+          '}';
+    }
+
+    @Override
     public int hashCode() {
       return Objects.hash(view, window);
     }
