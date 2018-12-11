@@ -18,8 +18,6 @@
 package org.apache.beam.runners.spark.util;
 
 import com.google.common.cache.Cache;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import javax.annotation.Nullable;
 import org.apache.beam.runners.core.SideInputReader;
@@ -40,7 +38,7 @@ public class CachedSideInputReader implements SideInputReader {
    * Keep references for the whole lifecycle of CachedSideInputReader otherwise sideInput needs to
    * be de-serialized again.
    */
-  private Set<?> sideInputReferences = new HashSet<>();
+//  private Set<?> sideInputReferences = new HashSet<>();
 
   /**
    * Create a new cached {@link SideInputReader}.
@@ -67,8 +65,8 @@ public class CachedSideInputReader implements SideInputReader {
         (Cache) SideInputStorage.getMaterializedSideInputs();
 
     Key<T> sideInputKey = new Key<>(view, window);
-    @SuppressWarnings("unchecked")
-    final Set<Value<T>> sideInputReferencesCasted = (Set<Value<T>>) sideInputReferences;
+//    @SuppressWarnings("unchecked")
+//    final Set<Value<T>> sideInputReferencesCasted = (Set<Value<T>>) sideInputReferences;
 
     Value<T> value;
     try {
@@ -85,7 +83,7 @@ public class CachedSideInputReader implements SideInputReader {
     } catch (ExecutionException e) {
       throw new RuntimeException(e.getCause());
     }
-    sideInputReferencesCasted.add(value);
+//    sideInputReferencesCasted.add(value);
     return value.getData();
   }
 

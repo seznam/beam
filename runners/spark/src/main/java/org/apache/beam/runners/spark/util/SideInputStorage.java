@@ -32,7 +32,7 @@ public class SideInputStorage {
 
   /** JVM deserialized side input cache. */
   private static final Cache<Key<?>, Value<?>> materializedSideInputs =
-      CacheBuilder.newBuilder().weakValues().build();
+      CacheBuilder.newBuilder().build();
 
   public static Cache<Key<?>, Value<?>> getMaterializedSideInputs() {
     return materializedSideInputs;
