@@ -37,6 +37,7 @@ abstract class AbstractJoinTranslator<LeftT, RightT, KeyT, OutputT>
     final PCollection<LeftT> left = (PCollection) inputs.get(0);
     @SuppressWarnings("unchecked")
     final PCollection<RightT> right = (PCollection) inputs.get(1);
+    System.out.println("right.hashCode() = " + right.hashCode() + " " + right.getName());
     PCollection<KV<KeyT, LeftT>> leftKeyed =
         left.apply(
             "extract-keys-left",
