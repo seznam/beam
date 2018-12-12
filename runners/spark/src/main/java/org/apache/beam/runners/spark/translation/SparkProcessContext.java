@@ -20,7 +20,7 @@ package org.apache.beam.runners.spark.translation;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.common.collect.AbstractIterator;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import org.apache.beam.runners.core.DoFnRunner;
 import org.apache.beam.runners.core.DoFnRunners.OutputManager;
@@ -38,13 +38,13 @@ import org.apache.beam.sdk.util.WindowedValue;
 class SparkProcessContext<FnInputT, FnOutputT, OutputT> {
 
   private final DoFn<FnInputT, FnOutputT> doFn;
-  private final DoFnRunner<FnInputT, FnOutputT> doFnRunner;
+  private final BlockingDoFnRunner<FnInputT, FnOutputT> doFnRunner;
   private final SparkOutputManager<OutputT> outputManager;
   private Iterator<TimerInternals.TimerData> timerDataIterator;
 
   SparkProcessContext(
       DoFn<FnInputT, FnOutputT> doFn,
-      DoFnRunner<FnInputT, FnOutputT> doFnRunner,
+      BlockingDoFnRunner<FnInputT, FnOutputT> doFnRunner,
       SparkOutputManager<OutputT> outputManager,
       Iterator<TimerInternals.TimerData> timerDataIterator) {
 
@@ -54,34 +54,24 @@ class SparkProcessContext<FnInputT, FnOutputT, OutputT> {
     this.timerDataIterator = timerDataIterator;
   }
 
-  Iterable<OutputT> processPartition(Iterator<WindowedValue<FnInputT>> partition) throws Exception {
-
+  Iterator<OutputT> processPartition(Iterator<WindowedValue<FnInputT>> partition) {
     // skip if partition is empty.
     if (!partition.hasNext()) {
-      return new ArrayList<>();
+      return Collections.emptyIterator();
     }
-
     // process the partition; finishBundle() is called from within the output iterator.
-    return this.getOutputIterable(partition, doFnRunner);
-  }
-
-  private void clearOutput() {
-    outputManager.clear();
+    return new ProcCtxtIterator(partition, doFnRunner);
   }
 
   private Iterator<OutputT> getOutputIterator() {
     return outputManager.iterator();
   }
 
-  private Iterable<OutputT> getOutputIterable(
-      final Iterator<WindowedValue<FnInputT>> iter,
-      final DoFnRunner<FnInputT, FnOutputT> doFnRunner) {
-    return () -> new ProcCtxtIterator(iter, doFnRunner);
-  }
-
   interface SparkOutputManager<T> extends OutputManager, Iterable<T> {
 
-    void clear();
+    void fail(Throwable t);
+
+    void tombstone();
   }
 
   static class NoOpStepContext implements StepContext {
@@ -100,16 +90,17 @@ class SparkProcessContext<FnInputT, FnOutputT, OutputT> {
   private class ProcCtxtIterator extends AbstractIterator<OutputT> {
 
     private final Iterator<WindowedValue<FnInputT>> inputIterator;
-    private final DoFnRunner<FnInputT, FnOutputT> doFnRunner;
+    private final BlockingDoFnRunner<FnInputT, FnOutputT> doFnRunner;
     private Iterator<OutputT> outputIterator;
     private boolean isBundleStarted;
     private boolean isBundleFinished;
 
     ProcCtxtIterator(
-        Iterator<WindowedValue<FnInputT>> iterator, DoFnRunner<FnInputT, FnOutputT> doFnRunner) {
+        Iterator<WindowedValue<FnInputT>> iterator,
+        BlockingDoFnRunner<FnInputT, FnOutputT> doFnRunner) {
       this.inputIterator = iterator;
       this.doFnRunner = doFnRunner;
-      this.outputIterator = getOutputIterator();
+      this.outputIterator = Collections.emptyIterator();
     }
 
     @Override
@@ -130,8 +121,6 @@ class SparkProcessContext<FnInputT, FnOutputT, OutputT> {
           if (outputIterator.hasNext()) {
             return outputIterator.next();
           }
-
-          clearOutput();
           if (inputIterator.hasNext()) {
             // grab the next element and process it.
             doFnRunner.processElement(inputIterator.next());
@@ -148,11 +137,13 @@ class SparkProcessContext<FnInputT, FnOutputT, OutputT> {
               continue; // try to consume outputIterator from start of loop
             }
             DoFnInvokers.invokerFor(doFn).invokeTeardown();
+            doFnRunner.close();
             return endOfData();
           }
         }
       } catch (final RuntimeException re) {
         DoFnInvokers.invokerFor(doFn).invokeTeardown();
+        doFnRunner.close();
         throw re;
       }
     }

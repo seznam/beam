@@ -17,15 +17,15 @@
  */
 package org.apache.beam.runners.spark.translation;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Iterators;
-import com.google.common.collect.LinkedListMultimap;
-import com.google.common.collect.Multimap;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import javax.annotation.Nullable;
 import org.apache.beam.runners.core.DoFnRunner;
 import org.apache.beam.runners.core.DoFnRunners;
 import org.apache.beam.runners.core.InMemoryStateInternals;
@@ -168,11 +168,10 @@ public class MultiDoFnFunction<InputT, OutputT>
 
     return new SparkProcessContext<>(
             doFn,
-            doFnRunnerWithMetrics,
+            new BlockingDoFnRunner<>(doFnRunnerWithMetrics, outputManager),
             outputManager,
             stateful ? new TimerDataIterator(timerInternals) : Collections.emptyIterator())
-        .processPartition(iter)
-        .iterator();
+        .processPartition(iter);
   }
 
   private static class TimerDataIterator implements Iterator<TimerInternals.TimerData> {
@@ -223,30 +222,117 @@ public class MultiDoFnFunction<InputT, OutputT>
     }
   }
 
+  private static class QueueItem<T> {
+
+    enum Type {
+      TOMBSTONE,
+      ITEM,
+      ERROR
+    }
+
+    private Type type;
+    @Nullable private T payload;
+    @Nullable private Throwable throwable;
+
+    QueueItem(Type type, @Nullable T payload, @Nullable Throwable throwable) {
+      this.type = type;
+      this.payload = payload;
+      this.throwable = throwable;
+    }
+
+    Type getType() {
+      return type;
+    }
+
+    @Nullable
+    Throwable getThrowable() {
+      return throwable;
+    }
+
+    @Nullable
+    T getPayload() {
+      return payload;
+    }
+  }
+
+  private static class BlockingQueueIterator<T> implements Iterator<T> {
+
+    private final BlockingQueue<QueueItem<T>> queue;
+    private QueueItem<T> currentElement = null;
+
+    BlockingQueueIterator(BlockingQueue<QueueItem<T>> queue) {
+      this.queue = queue;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return hasNextInternal();
+    }
+
+    @SuppressWarnings("unchecked")
+    private <ErrorT extends Throwable> boolean hasNextInternal() throws ErrorT {
+      if (currentElement == null) {
+        try {
+          currentElement = queue.take();
+          if (currentElement.getType() == QueueItem.Type.ERROR) {
+            throw (ErrorT) currentElement.getThrowable();
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException(e);
+        }
+      }
+      return currentElement.getType() == QueueItem.Type.ITEM;
+    }
+
+    @Override
+    public T next() {
+      if (!hasNext()) {
+        throw new NoSuchElementException();
+      }
+      final T result = currentElement.getPayload();
+      currentElement = null;
+      return result;
+    }
+  }
+
   private class DoFnOutputManager
       implements SparkProcessContext.SparkOutputManager<Tuple2<TupleTag<?>, WindowedValue<?>>> {
 
-    private final Multimap<TupleTag<?>, WindowedValue<?>> outputs = LinkedListMultimap.create();
+    private final BlockingQueue<QueueItem<Tuple2<TupleTag<?>, WindowedValue<?>>>> queue =
+        new LinkedBlockingQueue<>(1);
 
     @Override
-    public void clear() {
-      outputs.clear();
-    }
-
-    @Override
-    public Iterator<Tuple2<TupleTag<?>, WindowedValue<?>>> iterator() {
-      Iterator<Map.Entry<TupleTag<?>, WindowedValue<?>>> entryIter = outputs.entries().iterator();
-      return Iterators.transform(entryIter, this.entryToTupleFn());
-    }
-
-    private <K, V> Function<Map.Entry<K, V>, Tuple2<K, V>> entryToTupleFn() {
-      return en -> new Tuple2<>(en.getKey(), en.getValue());
+    public void fail(Throwable t) {
+      try {
+        queue.put(new QueueItem<>(QueueItem.Type.ERROR, null, t));
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
     }
 
     @Override
     @SuppressWarnings("unchecked")
-    public synchronized <T> void output(TupleTag<T> tag, WindowedValue<T> output) {
-      outputs.put(tag, output);
+    public void tombstone() {
+      try {
+        queue.put(new QueueItem<>(QueueItem.Type.TOMBSTONE, null, null));
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    @Override
+    public Iterator<Tuple2<TupleTag<?>, WindowedValue<?>>> iterator() {
+      return new BlockingQueueIterator<>(queue);
+    }
+
+    @Override
+    public <T> void output(TupleTag<T> tag, WindowedValue<T> output) {
+      try {
+        queue.put(new QueueItem<>(QueueItem.Type.ITEM, new Tuple2<>(tag, output), null));
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
     }
   }
 }
