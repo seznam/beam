@@ -129,7 +129,7 @@ public class GroupCombineFunctions {
               //TODO we can modify first argument and return it !
               Iterable<WindowedValue<AccumT>> merged =
                   sparkCombineFn.seqOp(ab.getOrDecode(iterAccumCoder), ib);
-              return new SerializableAccumulator<AccumT>(merged, iterAccumCoder);
+              return new SerializableAccumulator<>(merged, iterAccumCoder);
             },
             (a1b, a2b) -> {
               //TODO we can modify first argument and return it !
@@ -285,23 +285,42 @@ public class GroupCombineFunctions {
     Iterable<WindowedValue<AccumT>> getOrDecode(Coder<Iterable<WindowedValue<AccumT>>> coder) {
       if (accumulated == null) {
         accumulated = CoderHelpers.fromByteArray(serializedAcc, coder);
+        serializedAcc = null;
+      }
+
+      if (this.coder == null) {
+        this.coder = coder;
       }
 
       return accumulated;
     }
 
+    private byte[] toBytes() {
+      byte[] coded;
+      if (coder != null) {
+        coded = CoderHelpers.toByteArray(this.accumulated, coder);
+      } else if (serializedAcc != null) {
+        coded = serializedAcc;
+      } else {
+        throw new IllegalStateException(
+            String.format(
+                "Given '%s' cannot be serialized since it do not contain coder or already serialized data.",
+                SerializableAccumulator.class.getSimpleName()));
+      }
+      return coded;
+    }
+
     private void writeObject(ObjectOutputStream out) throws IOException {
-      out.writeObject(coder);
-      coder.encode(accumulated, out);
+      byte[] coded = toBytes();
+      out.writeInt(coded.length);
+      out.write(coded);
     }
 
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
-      @SuppressWarnings("unchecked")
-      Coder<Iterable<WindowedValue<AccumT>>> coder =
-          (Coder<Iterable<WindowedValue<AccumT>>>) in.readObject();
-
-      this.coder = coder;
-      this.accumulated = coder.decode(in);
+      int length = in.readInt();
+      byte[] coded = new byte[length];
+      in.readFully(coded);
+      this.serializedAcc = coded;
     }
   }
 
@@ -315,7 +334,8 @@ public class GroupCombineFunctions {
 
     @Override
     public void write(Kryo kryo, Output output, SerializableAccumulator<AccumT> accumulator) {
-      byte[] coded = CoderHelpers.toByteArray(accumulator.accumulated, accumulator.coder);
+      byte[] coded = accumulator.toBytes();
+
       output.writeInt(coded.length, true);
       output.write(coded);
     }
