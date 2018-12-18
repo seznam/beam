@@ -48,6 +48,7 @@ public class BroadcastHashJoinTranslator<LeftT, RightT, KeyT, OutputT>
     implements OperatorTranslator<Object, KV<KeyT, OutputT>, Join<LeftT, RightT, KeyT, OutputT>>{
 
   private static final Logger LOG = LoggerFactory.getLogger(BroadcastHashJoinTranslator.class);
+  private static final Iterable<?> LIST_WITH_NULL = Collections.singletonList(null);
 
   static Map<PCollection<?>, PCollectionView<?>> pViewsMap = new HashMap<>();
 
@@ -162,7 +163,7 @@ public class BroadcastHashJoinTranslator<LeftT, RightT, KeyT, OutputT>
       final KV<K, RightT> element = context.element();
       final K key = element.getKey();
       final Map<K, Iterable<LeftT>> map = context.sideInput(smallSideCollection);
-      final Iterable<LeftT> leftValues = map.getOrDefault(key, Collections.singletonList(null));
+      final Iterable<LeftT> leftValues = map.getOrDefault(key, (Iterable<LeftT>) LIST_WITH_NULL);
       outCollector.setProcessContext(context);
       leftValues.forEach(leftValue -> joiner.apply(leftValue, element.getValue(), outCollector));
     }
@@ -195,7 +196,7 @@ public class BroadcastHashJoinTranslator<LeftT, RightT, KeyT, OutputT>
       final KV<K, LeftT> element = context.element();
       final K key = element.getKey();
       final Map<K, Iterable<RightT>> map = context.sideInput(smallSideCollection);
-      final Iterable<RightT> rightValues = map.getOrDefault(key, Collections.singletonList(null));
+      final Iterable<RightT> rightValues = map.getOrDefault(key, (Iterable<RightT>) LIST_WITH_NULL);
       outCollector.setProcessContext(context);
       rightValues.forEach(rightValue -> joiner.apply(element.getValue(), rightValue, outCollector));
     }
