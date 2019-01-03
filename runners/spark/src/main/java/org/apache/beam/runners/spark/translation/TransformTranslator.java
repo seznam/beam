@@ -23,6 +23,7 @@ import static org.apache.beam.runners.spark.translation.TranslationUtils.avoidRd
 
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import java.util.Collection;
 import java.util.HashMap;
@@ -45,7 +46,10 @@ import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.io.Read;
 import org.apache.beam.sdk.transforms.Combine;
 import org.apache.beam.sdk.transforms.CombineWithContext;
+import org.apache.beam.sdk.transforms.Contextful;
+import org.apache.beam.sdk.transforms.Contextful.Fn;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.FlatMapElements;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -71,6 +75,7 @@ import org.apache.spark.Partitioner;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.storage.StorageLevel;
 
 /** Supports translation between a Beam transform, and Spark's operations on RDDs. */
@@ -556,6 +561,47 @@ public final class TransformTranslator {
     };
   }
 
+  private static <InputT, OutputT>
+      TransformEvaluator<FlatMapElements<InputT, OutputT>> flatMapElements() {
+
+    return new TransformEvaluator<FlatMapElements<InputT, OutputT>>() {
+      @Override
+      public void evaluate(FlatMapElements<InputT, OutputT> transform, EvaluationContext context) {
+        @SuppressWarnings("unchecked")
+        JavaRDD<WindowedValue<InputT>> inRDD =
+            ((BoundedDataset<InputT>) context.borrowDataset(transform)).getRDD();
+
+        Contextful<Fn<InputT, Iterable<OutputT>>> fn = transform.getFn();
+
+        //TODO is there some dummy Context to be used ?
+        FlatMapFunction<WindowedValue<InputT>, WindowedValue<OutputT>> flatMapFunction =
+            (element) -> {
+              InputT value = element.getValue();
+
+              //TODO user code invocation try-catch
+              Iterable<OutputT> outElementIter = fn.getClosure().apply(value, null);
+
+              //TODO je tohle dobre ? Prijde mi to trochu naivni
+              return Iterables.transform(
+                      outElementIter,
+                      (e) ->
+                          WindowedValue.of(
+                              e, element.getTimestamp(), element.getWindows(), element.getPane()))
+                  .iterator();
+            };
+
+        JavaRDD<WindowedValue<OutputT>> flatMapped = inRDD.flatMap(flatMapFunction);
+
+        context.putDataset(transform, new BoundedDataset<>(flatMapped));
+      }
+
+      @Override
+      public String toNativeString() {
+        return "flatMapElements(...)";
+      }
+    };
+  }
+
   private static final Map<String, TransformEvaluator<?>> EVALUATORS = new HashMap<>();
 
   static {
@@ -569,6 +615,7 @@ public final class TransformTranslator {
     EVALUATORS.put(PTransformTranslation.CREATE_VIEW_TRANSFORM_URN, createPCollView());
     EVALUATORS.put(PTransformTranslation.ASSIGN_WINDOWS_TRANSFORM_URN, window());
     EVALUATORS.put(PTransformTranslation.RESHUFFLE_URN, reshuffle());
+    EVALUATORS.put(SparkFlatMapElementsTranslator.FLAT_MAP_ELEMENTS_URN, flatMapElements());
   }
 
   @Nullable
@@ -582,7 +629,8 @@ public final class TransformTranslator {
 
     @Override
     public boolean hasTranslation(PTransform<?, ?> transform) {
-      return EVALUATORS.containsKey(PTransformTranslation.urnForTransformOrNull(transform));
+      String urn = PTransformTranslation.urnForTransformOrNull(transform);
+      return EVALUATORS.containsKey(urn);
     }
 
     @Override
@@ -603,6 +651,18 @@ public final class TransformTranslator {
         PTransform<?, ?> transform) {
       throw new IllegalStateException(
           "TransformTranslator used in a batch pipeline only " + "supports BOUNDED transforms.");
+    }
+  }
+
+  static class SparkFlatMapElementsTranslator
+      extends PTransformTranslation.TransformPayloadTranslator.NotSerializable<
+          FlatMapElements<?, ?>> {
+
+    static final String FLAT_MAP_ELEMENTS_URN = "urn:beam:transform:FlatMapElements";
+
+    @Override
+    public String getUrn(FlatMapElements transform) {
+      return FLAT_MAP_ELEMENTS_URN;
     }
   }
 }

@@ -170,4 +170,10 @@ public class FlatMapElements<InputT, OutputT>
       builder.include("fn", (HasDisplayData) originalFnForDisplayData);
     }
   }
+
+  @Nullable
+  public Contextful<Fn<InputT, Iterable<OutputT>>> getFn() {
+    checkArgument(fn != null, ".via() is required");
+    return fn;
+  }
 }
