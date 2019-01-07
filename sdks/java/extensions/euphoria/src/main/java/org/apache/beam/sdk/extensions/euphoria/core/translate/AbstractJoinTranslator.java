@@ -56,7 +56,6 @@ abstract class AbstractJoinTranslator<LeftT, RightT, KeyT, OutputT>
       final Window<KV<KeyT, RightT>> rightWindow = (Window) operator.getWindow().get();
       rightKeyed = rightKeyed.apply("window-right", rightWindow);
     }
-
     return translate(operator, left, leftKeyed, right, rightKeyed)
         .setTypeDescriptor(
             operator
