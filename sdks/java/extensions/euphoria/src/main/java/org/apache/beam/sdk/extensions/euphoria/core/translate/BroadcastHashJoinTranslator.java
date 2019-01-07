@@ -42,15 +42,17 @@ public class BroadcastHashJoinTranslator<LeftT, RightT, KeyT, OutputT>
   @Override
   PCollection<KV<KeyT, OutputT>> translate(
       Join<LeftT, RightT, KeyT, OutputT> operator,
-      PCollection<KV<KeyT, LeftT>> left,
-      PCollection<KV<KeyT, RightT>> right) {
+      PCollection<LeftT> left,
+      PCollection<KV<KeyT, LeftT>> leftKeyed,
+      PCollection<RightT> right,
+      PCollection<KV<KeyT, RightT>> rightKeyed) {
     final AccumulatorProvider accumulators =
-        new LazyAccumulatorProvider(AccumulatorProvider.of(left.getPipeline()));
+        new LazyAccumulatorProvider(AccumulatorProvider.of(leftKeyed.getPipeline()));
     switch (operator.getType()) {
       case LEFT:
         final PCollectionView<Map<KeyT, Iterable<RightT>>> broadcastRight =
-            right.apply(View.asMultimap());
-        return left.apply(
+            rightKeyed.apply(View.asMultimap());
+        return leftKeyed.apply(
             ParDo.of(
                     new BroadcastHashLeftJoinFn<>(
                         broadcastRight,
@@ -60,8 +62,8 @@ public class BroadcastHashJoinTranslator<LeftT, RightT, KeyT, OutputT>
                 .withSideInputs(broadcastRight));
       case RIGHT:
         final PCollectionView<Map<KeyT, Iterable<LeftT>>> broadcastLeft =
-            left.apply(View.asMultimap());
-        return right.apply(
+            leftKeyed.apply(View.asMultimap());
+        return rightKeyed.apply(
             ParDo.of(
                     new BroadcastHashRightJoinFn<>(
                         broadcastLeft,
