@@ -24,6 +24,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 import com.google.common.primitives.UnsignedBytes;
+import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Iterator;
 import org.apache.beam.runners.spark.coders.CoderHelpers;
@@ -41,6 +42,9 @@ import org.apache.spark.api.java.JavaRDD;
 import org.joda.time.Instant;
 import scala.Tuple2;
 
+/**
+ * TODO javadoc.
+ */
 public class GroupNonMergingWindowsFunctions {
 
   public static <K, V, W extends BoundedWindow>
@@ -175,7 +179,7 @@ public class GroupNonMergingWindowsFunctions {
   /**
    * Composite key of key and window for groupByKey transformation.
    */
-  public static class KeyAndWindow implements Comparable<KeyAndWindow> {
+  public static class KeyAndWindow implements Comparable<KeyAndWindow>, Serializable {
 
     private final byte[] key;
     private final byte[] window;

@@ -275,7 +275,12 @@ class BeamModulePlugin implements Plugin<Project> {
 
     // Automatically use the official release version if we are performing a release
     // otherwise append '-SNAPSHOT'
-    project.version = '2.10.0'
+    if (project.name.startsWith('beam-runners-spark')) {
+      project.version = '2.10.0-szn' //include only modules containing features which are not in master
+    } else{
+      project.version = '2.10.0'
+    }
+
     if (!isRelease(project)) {
       project.version += '-SNAPSHOT'
     }

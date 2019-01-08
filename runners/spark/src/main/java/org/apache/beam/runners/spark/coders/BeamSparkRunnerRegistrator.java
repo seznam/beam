@@ -22,13 +22,13 @@ import com.google.common.collect.HashBasedTable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import org.apache.beam.runners.spark.io.MicrobatchSource;
-import org.apache.beam.runners.spark.translation.GroupNonMergingWindowsFunctions.KeyAndWindow;
 import org.apache.beam.runners.spark.stateful.SparkGroupAlsoByWindowViaWindowSet.StateAndTimers;
+import org.apache.beam.runners.spark.translation.GroupCombineFunctions;
+import org.apache.beam.runners.spark.translation.GroupNonMergingWindowsFunctions.KeyAndWindow;
 import org.apache.beam.runners.spark.util.ByteArray;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.TupleTag;
-import org.apache.beam.runners.spark.translation.GroupCombineFunctions;
 import org.apache.spark.serializer.KryoRegistrator;
 import scala.collection.mutable.WrappedArray;
 
