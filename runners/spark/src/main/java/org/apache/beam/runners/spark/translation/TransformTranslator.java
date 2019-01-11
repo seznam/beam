@@ -138,9 +138,12 @@ public final class TransformTranslator {
         final WindowedValue.WindowedValueCoder<V> wvCoder =
             WindowedValue.FullWindowedValueCoder.of(coder.getValueCoder(), windowFn.windowCoder());
 
+        StorageLevel storageLevel = StorageLevel.fromString(context.storageLevel());
         JavaRDD<WindowedValue<KV<K, Iterable<V>>>> groupedByKey;
+        // for now only allowed with serialization caching
         if (windowingStrategy.getWindowFn().isNonMerging()
-            && windowingStrategy.getTimestampCombiner() != TimestampCombiner.LATEST) {
+            && windowingStrategy.getTimestampCombiner() != TimestampCombiner.LATEST
+            && !TranslationUtils.avoidRddSerialization(storageLevel)) {
           groupedByKey =
               GroupNonMergingWindowsFunctions.groupByKeyAndWindow(
                   inRDD, keyCoder, coder.getValueCoder(), windowingStrategy);

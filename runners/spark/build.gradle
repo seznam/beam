@@ -43,6 +43,7 @@ test {
                     "--runner=TestSparkRunner",
                     "--streaming=false",
                     "--enableSparkMetricSinks=true"
+                    "--storageLevel=MEMORY_AND_DISK_SER",
                   ]"""
   // Only one SparkContext may be running in a JVM (SPARK-2243)
   forkEvery 1
