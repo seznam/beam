@@ -31,9 +31,9 @@ import org.gradle.api.plugins.quality.FindBugs
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.JavaExec
-import org.gradle.api.tasks.javadoc.Javadoc
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.tasks.javadoc.Javadoc
 import org.gradle.api.tasks.testing.Test
 import org.gradle.testing.jacoco.tasks.JacocoReport
 
@@ -275,7 +275,7 @@ class BeamModulePlugin implements Plugin<Project> {
 
     // Automatically use the official release version if we are performing a release
     // otherwise append '-SNAPSHOT'
-    if (project.name.startsWith('beam-runners-spark')) {
+    if (project.name.startsWith('beam-runners-spark') || project.name.startsWith('beam-sdks-java-extensions-euphoria')) {
       project.version = '2.10.0-szn' //include only modules containing features which are not in master
     } else{
       project.version = '2.10.0'
