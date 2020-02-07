@@ -260,6 +260,8 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
         doFn != null
             && DoFnSignatures.getSignature(doFn.getClass()).processElement().requiresStableInput();
 
+    LOG.info("requiresStableInput {}", requiresStableInput);
+
     if (requiresStableInput) {
       Preconditions.checkState(
           CheckpointingMode.valueOf(flinkOptions.getCheckpointingMode())
@@ -760,7 +762,11 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
       // snapshot id and start a new buffer for elements arriving after this snapshot.
       bufferingDoFnRunner.checkpoint(context.getCheckpointId());
     }
-
+    LOG.info(
+        "stepName {} getCheckpointId {}, getCheckpointTimestamp {}",
+        stepName,
+        context.getCheckpointId(),
+        context.getCheckpointTimestamp());
     // We can't output here anymore because the checkpoint barrier has already been
     // sent downstream. This is going to change with 1.6/1.7's prepareSnapshotBarrier.
     try {
@@ -771,6 +777,7 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
       }
       outputManager.closeBuffer();
     } catch (Exception e) {
+      LOG.error("error ", e);
       // https://jira.apache.org/jira/browse/FLINK-14653
       // Any regular exception during checkpointing will be tolerated by Flink because those
       // typically do not affect the execution flow. We need to fail hard here because errors
@@ -783,6 +790,7 @@ public class DoFnOperator<InputT, OutputT> extends AbstractStreamOperator<Window
 
   @Override
   public final void notifyCheckpointComplete(long checkpointId) throws Exception {
+    LOG.info("notifyCheckpointComplete stepName {} getCheckpointId {}", stepName, checkpointId);
     super.notifyCheckpointComplete(checkpointId);
     if (requiresStableInput) {
       // We can now release all buffered data which was held back for

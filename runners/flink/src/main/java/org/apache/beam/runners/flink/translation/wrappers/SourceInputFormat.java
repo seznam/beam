@@ -111,6 +111,7 @@ public class SourceInputFormat<T> extends RichInputFormat<WindowedValue<T>, Sour
       List<? extends Source<T>> shards = initialSource.split(desiredSizeBytes, options);
       int numShards = shards.size();
       SourceInputSplit<T>[] sourceInputSplits = new SourceInputSplit[numShards];
+      LOG.info("Flink number of splits {}", numShards);
       for (int i = 0; i < numShards; i++) {
         sourceInputSplits[i] = new SourceInputSplit<>(shards.get(i), i);
       }

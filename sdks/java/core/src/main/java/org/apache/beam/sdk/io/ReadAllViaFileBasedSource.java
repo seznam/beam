@@ -31,6 +31,8 @@ import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Reads each file in the input {@link PCollection} of {@link ReadableFile} using given parameters
@@ -43,6 +45,8 @@ import org.apache.beam.sdk.values.PCollection;
 @Experimental(Experimental.Kind.SOURCE_SINK)
 public class ReadAllViaFileBasedSource<T>
     extends PTransform<PCollection<ReadableFile>, PCollection<T>> {
+
+  private static final Logger LOG = LoggerFactory.getLogger(ReadAllViaFileBasedSource.class);
   private final long desiredBundleSizeBytes;
   private final SerializableFunction<String, ? extends FileBasedSource<T>> createSource;
   private final Coder<T> coder;
@@ -101,14 +105,24 @@ public class ReadAllViaFileBasedSource<T>
       FileBasedSource<T> source =
           CompressedSource.from(createSource.apply(file.getMetadata().resourceId().toString()))
               .withCompression(file.getCompression());
+      long startTime = System.currentTimeMillis();
+
+      LOG.info("Started reading file {} range {}", file.getMetadata(), range);
+
       try (BoundedSource.BoundedReader<T> reader =
           source
               .createForSubrangeOfFile(file.getMetadata(), range.getFrom(), range.getTo())
               .createReader(c.getPipelineOptions())) {
+        int i = 0;
         for (boolean more = reader.start(); more; more = reader.advance()) {
+          i++;
+          if (i % 10_000 == 0) {
+            LOG.info("Reading status {}", i);
+          }
           c.output(reader.getCurrent());
         }
       }
+      LOG.info("Reading took {}ms", System.currentTimeMillis() - startTime);
     }
   }
 }

@@ -145,6 +145,11 @@ public class UnboundedReadFromBoundedSource<T> extends PTransform<PBegin, PColle
         if (splits.size() == 0) {
           splits = ImmutableList.of(boundedSource);
         }
+        LOG.info(
+            "Splits {} , estimatedSize {}, desiredBundleSize {}",
+            splits.size(),
+            estimatedSize,
+            desiredBundleSize);
         return splits.stream()
             .map(input -> new BoundedToUnboundedSourceAdapter<>(input))
             .collect(Collectors.toList());
@@ -203,6 +208,16 @@ public class UnboundedReadFromBoundedSource<T> extends PTransform<PBegin, PColle
       @Nullable
       BoundedSource<T> getResidualSource() {
         return residualSource;
+      }
+
+      @Override
+      public String toString() {
+        return "Checkpoint{"
+            + "residualElements="
+            + residualElements
+            + ", residualSource="
+            + residualSource
+            + '}';
       }
     }
 

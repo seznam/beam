@@ -55,6 +55,7 @@ import org.slf4j.LoggerFactory;
  * @see RangeTracker
  */
 public abstract class OffsetBasedSource<T> extends BoundedSource<T> {
+  private static final Logger LOG = LoggerFactory.getLogger(OffsetBasedSource.class);
   private final long startOffset;
   private final long endOffset;
   private final long minBundleSize;
@@ -118,6 +119,11 @@ public abstract class OffsetBasedSource<T> extends BoundedSource<T> {
             .split(desiredBundleSizeOffsetUnits, minBundleSize)) {
       subSources.add(createSourceForSubrange(range.getFrom(), range.getTo()));
     }
+
+    LOG.info(
+        "Splitting desiredBundleSizeBytes={}, splits={}",
+        desiredBundleSizeBytes,
+        subSources.size());
     return subSources;
   }
 

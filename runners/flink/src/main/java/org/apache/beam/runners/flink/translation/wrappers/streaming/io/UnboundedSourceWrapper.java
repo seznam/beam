@@ -168,6 +168,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
     // this is necessary so that the mapping of state to source is correct
     // when restoring
     splitSources = source.split(parallelism, pipelineOptions);
+    LOG.info("Unbound flink split Source count {}", splitSources.size());
     shutdownOnFinalWatermark =
         pipelineOptions.as(FlinkPipelineOptions.class).isShutdownSourcesOnFinalWatermark();
   }
@@ -387,6 +388,10 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
       stateForCheckpoint.clear();
 
       long checkpointId = functionSnapshotContext.getCheckpointId();
+      LOG.info(
+          "functionSnapshotContext.getCheckpointId {}, ts {}",
+          checkpointId,
+          functionSnapshotContext.getCheckpointTimestamp());
 
       // we checkpoint the sources along with the CheckpointMarkT to ensure
       // than we have a correct mapping of checkpoints to sources when
@@ -399,6 +404,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
 
         @SuppressWarnings("unchecked")
         CheckpointMarkT mark = (CheckpointMarkT) reader.getCheckpointMark();
+        LOG.info("Checkpoint mark {}, source {}", mark, source);
         checkpointMarks.add(mark);
         KV<UnboundedSource<OutputT, CheckpointMarkT>, CheckpointMarkT> kv = KV.of(source, mark);
         stateForCheckpoint.add(kv);
@@ -412,6 +418,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
           iterator.remove();
         }
       }
+      LOG.info("pendingCheckpoints checkpointId {}, ", checkpointId);
       pendingCheckpoints.put(checkpointId, checkpointMarks);
     }
   }
@@ -519,7 +526,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
 
   @Override
   public void notifyCheckpointComplete(long checkpointId) throws Exception {
-
+    LOG.info("Checkpoint completed {}", checkpointId);
     List<CheckpointMarkT> checkpointMarks = pendingCheckpoints.get(checkpointId);
 
     if (checkpointMarks != null) {
