@@ -319,7 +319,7 @@ class BeamModulePlugin implements Plugin<Project> {
     // otherwise append '-SNAPSHOT'
     project.version = '2.23.0'
     if (!isRelease(project)) {
-      project.version += '-SNAPSHOT'
+      project.version += '-SZN-1'
     }
 
     // Default to dash-separated directories for artifact base name,
