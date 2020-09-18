@@ -210,7 +210,7 @@ final class BoundedReadEvaluatorFactory implements TransformEvaluatorFactory {
         throws Exception {
       BoundedSource<T> source = ReadTranslation.boundedSourceFromTransform(transform);
       long estimatedBytes = source.getEstimatedSizeBytes(options);
-      long bytesPerBundle = estimatedBytes / targetParallelism;
+      long bytesPerBundle = (targetParallelism > estimatedBytes) ? estimatedBytes / targetParallelism : estimatedBytes;
       List<? extends BoundedSource<T>> bundles = source.split(bytesPerBundle, options);
       ImmutableList.Builder<CommittedBundle<BoundedSourceShard<T>>> shards =
           ImmutableList.builder();

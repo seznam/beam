@@ -807,7 +807,8 @@ public class ElasticsearchIO {
         checkArgument(!sources.isEmpty(), "No shard found");
       } else if (backendVersion >= 5) {
         long indexSize = getEstimatedSizeBytes(options);
-        float nbBundlesFloat = (float) indexSize / desiredBundleSizeBytes;
+        // Check desiredBundleSizeBytes because: "If there is no way to estimate the size of the source implementations MAY return 0L"
+        float nbBundlesFloat = desiredBundleSizeBytes > 0 ? (float) indexSize / desiredBundleSizeBytes : indexSize;
         int nbBundles = (int) Math.ceil(nbBundlesFloat);
         // ES slice api imposes that the number of slices is <= 1024 even if it can be overloaded
         if (nbBundles > 1024) {
